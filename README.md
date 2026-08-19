@@ -28,6 +28,23 @@ pip install -e third_party/video_ocr_engine        # 引擎 + 其依赖
 pip uninstall -y PySide6-Addons
 ```
 
+## 一键脚本（Windows PowerShell）
+
+仓库 `scripts/` 提供三个一键脚本（右键「使用 PowerShell 运行」，或
+`powershell -ExecutionPolicy Bypass -File scripts\xxx.ps1`）：
+
+| 脚本 | 作用 |
+|------|------|
+| `scripts/setup.ps1` | **一键配置 venv**：拉引擎子模块 → 建 `.venv` → 装本项目（含 dev）+ 引擎依赖 → 尝试移除多余的 `PySide6-Addons`（省 ~400MB；会自检 Qt 导入，失败自动装回，保证 GUI 可用）。可选 `-NoDev`（只装运行时）、`-KeepAddons`（保留 Addons） |
+| `scripts/run_gui.ps1` | **一键启动 GUI**：用 `.venv` 的 python 运行 `gui.py`（未配置时提示先跑 setup） |
+| `scripts/build_exe.ps1` | **一键构建 frozen exe**：安装 PyInstaller → 按 `scripts/VideoSubtitleExtractor.spec` 冻结 GUI，产物在 `dist\VideoSubtitleExtractor\`（onedir，引擎源码与 OCR 模型已随包） |
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup.ps1      # 首次
+powershell -ExecutionPolicy Bypass -File scripts\run_gui.ps1    # 启动 GUI
+powershell -ExecutionPolicy Bypass -File scripts\build_exe.ps1  # 构建 exe
+```
+
 ## 用法
 
 ### CLI
@@ -49,6 +66,7 @@ subtitle-extract episode.mkv --roi 10 850 1910 940 -o subtitles.csv
 
 ```bash
 python gui.py                     # 或 pip 安装后: subtitle-extract-gui
+# 或一键: powershell -ExecutionPolicy Bypass -File scripts\run_gui.ps1
 ```
 
 - **导入视频**：打开文件并载入元信息与首帧（预览显示）

@@ -18,6 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+build = ["pyinstaller>=6"]  # 一键构建 frozen exe（scripts/build_exe.ps1）
 
 [project.scripts]
 subtitle-extract = "subtitle_extract_cli:main"
