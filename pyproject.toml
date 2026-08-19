@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "video-subtitle-extractor"
+version = "0.1.0"
+description = "从视频固定区域提取字幕/文本的 CLI：基于 video_ocr_engine，输出 时间戳+原始文本 CSV（支持分频采样）。"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+dependencies = [
+    "numpy>=2",  # 经引擎（third_party/video_ocr_engine submodule）间接需要
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+subtitle-extract = "subtitle_extract_cli:main"
+
+[tool.setuptools]
+py-modules = [
+    "engine_bootstrap",
+    "subtitle_extract_cli",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

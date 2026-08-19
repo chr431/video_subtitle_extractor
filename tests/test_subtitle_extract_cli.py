@@ -1,0 +1,84 @@
+"""subtitle_extract_cli 单元测试（无需视频/decord/GPU/OCR）：CSV 行构建、时间戳、写文件、参数解析。"""
+from __future__ import annotations
+
+import csv
+from pathlib import Path
+
+import subtitle_extract_cli as m
+from video_ocr_engine import ExtractedSegment, ExtractionResult
+
+
+def _result(fps: float) -> ExtractionResult:
+    r = ExtractionResult(fps=fps)
+    r.segments = [
+        ExtractedSegment(start=0, end=0, rep_frame=0, text="你好"),
+        ExtractedSegment(start=30, end=30, rep_frame=30, text=None),    # 无文本 → 跳过
+        ExtractedSegment(start=45, end=45, rep_frame=45, text=""),       # 空串  → 跳过
+        ExtractedSegment(start=60, end=60, rep_frame=60, text="世界"),
+    ]
+    return r
+
+
+def test_build_rows_maps_timestamp_and_skips_empty():
+    rows = m.build_rows(_result(fps=30.0))
+    # 0/30=0 → 0s；30/30=1 → 1s（但 None 跳过）；45 跳过；60/30=2 → 2s
+    assert rows == [(0, "你好"), (2, "世界")]
+
+
+def test_build_rows_text_kept_verbatim():
+    r = ExtractionResult(fps=10.0)
+    r.segments = [
+        ExtractedSegment(start=10, end=10, rep_frame=10, text=" 带 空格 "),
+        ExtractedSegment(start=20, end=20, rep_frame=20, text="含,逗号"),
+    ]
+    rows = m.build_rows(r)
+    assert rows[0] == (1, " 带 空格 ")          # 原样，不 strip
+    assert rows[1][1] == "含,逗号"              # 逗号交给 csv 引号处理
+
+
+def test_timestamp_rounding():
+    r = ExtractionResult(fps=30.0)
+    r.segments = [
+        ExtractedSegment(start=0, end=0, rep_frame=44, text="a"),  # 44/30≈1.47 → 1
+        ExtractedSegment(start=0, end=0, rep_frame=45, text="b"),  # 45/30=1.5  → 2
+    ]
+    assert [t for t, _ in m.build_rows(r)] == [1, 2]
+
+
+def test_timestamp_zero_when_fps_unknown():
+    r = ExtractionResult(fps=0.0)
+    r.segments = [ExtractedSegment(start=0, end=0, rep_frame=100, text="x")]
+    assert m.build_rows(r) == [(0, "x")]
+
+
+def test_write_csv_header_and_quoting(tmp_path):
+    out = tmp_path / "sub" / "out.csv"   # 目录不存在也应创建
+    m.write_csv(out, [(1, "你好，世界"), (2, "a,b")])
+    with open(out, encoding="utf-8-sig", newline="") as f:
+        data = list(csv.reader(f))
+    assert data[0] == ["time_sec", "text"]
+    assert data[1] == ["1", "你好，世界"]
+    assert data[2] == ["2", "a,b"]       # 含逗号文本被 csv 引号包裹，读回仍为单值
+
+
+def test_default_output_path():
+    assert m.default_output_path(Path("D:/x/abc.mp4")) == Path("D:/x/abc_subtitles.csv")
+
+
+def test_parse_args_defaults_and_override():
+    a = m.parse_args(["v.mp4", "--roi", "1", "2", "3", "4"])
+    assert a.roi == [1, 2, 3, 4]
+    assert a.start_frame == 0
+    assert a.end_frame is None
+    assert a.output is None
+    assert a.sample_stride == 1
+
+    b = m.parse_args(["v.mp4", "--roi", "1", "2", "3", "4",
+                      "--start-frame", "100", "--end-frame", "200",
+                      "--sample-stride", "3", "-o", "x.csv"])
+    assert (b.start_frame, b.end_frame, b.sample_stride, b.output) == (100, 200, 3, "x.csv")
+
+
+def test_main_missing_video_returns_2(capsys):
+    code = m.main(["does_not_exist.mp4", "--roi", "1", "2", "3", "4"])
+    assert code == 2
