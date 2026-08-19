@@ -16,6 +16,9 @@ dist/
 .idea/
 .DS_Store
 
+# decord fork 发布产物（scripts/setup.ps1 缓存/读取）
+_decord_build/
+
 # 运行产物
 *.mp4
 *.mkv

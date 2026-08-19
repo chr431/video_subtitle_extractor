@@ -23,10 +23,12 @@ cd video_subtitle_extractor
 python -m venv .venv && .venv\Scripts\activate     # Windows
 pip install -e ".[dev]"
 pip install -e third_party/video_ocr_engine        # 引擎 + 其依赖
-# decord fork：从 chr431/decord v0.7.12 release 安装（见引擎 README）
-# GUI 安装后移除 PySide6-Addons（qfluentwidgets 经 PySide6 元包拉入 ~400MB，
-# 运行只需 Essentials）：
+# decord fork：运行 scripts\setup.ps1 会自动下载 chr431/decord v0.7.12 发布包
+# （缓存到 _decord_build\）并装入 .venv。GUI 精简 Qt（PySide6-Addons 是可废弃的
+# ~400MB，且其 RECORD 误含 Essentials 的 Qt6Core.dll——卸载后需强制重装
+# Essentials 恢复，否则 QtCore 加载失败）：
 pip uninstall -y PySide6-Addons
+pip install --force-reinstall --no-deps PySide6-Essentials
 ```
 
 ## 一键脚本（Windows PowerShell）
@@ -36,9 +38,9 @@ pip uninstall -y PySide6-Addons
 
 | 脚本 | 作用 |
 |------|------|
-| `scripts/setup.ps1` | **一键配置 venv**：拉引擎子模块 → 建 `.venv` → 装本项目（含 dev）+ 引擎依赖 → 装 **decord 解码 fork**（chr431/decord v0.7.12，解码必需，`-SkipDecord` 可跳过）→ 尝试移除多余的 `PySide6-Addons`（省 ~400MB；会自检 Qt 导入，失败自动装回，保证 GUI 可用）。可选 `-NoDev`（只装运行时）、`-KeepAddons`（保留 Addons） |
+| `scripts/setup.ps1` | **一键配置 venv**（参考 RaceVideoToLog）：拉引擎子模块 → 建 `.venv` → 写引擎 `.pth` → 装本项目（含 dev）+ 引擎依赖 → 装 **decord 解码 fork**（`_decord_build\` 优先或下载 v0.7.12，解码必需，`-SkipDecord` 可跳过）→ 精简 Qt（移除 `PySide6-Addons` 并强制重装 `PySide6-Essentials` 修复 RECORD 缺陷；`-KeepAddons` 保留）。可选 `-NoDev` |
 | `scripts/run_gui.ps1` | **一键启动 GUI**：用 `.venv` 的 python 运行 `gui.py`（未配置时提示先跑 setup） |
-| `scripts/build_exe.ps1` | **一键构建 frozen exe**：安装 PyInstaller → 按 `scripts/VideoSubtitleExtractor.spec` 冻结 GUI，产物在 `dist\VideoSubtitleExtractor\`（onedir，引擎源码与 OCR 模型已随包；构建机需先跑 setup 以带上 decord 解码后端） |
+| `scripts/build_exe.ps1` | **一键构建 frozen exe**（参考 RaceVideoToLog）：自动补 .venv → 校验关键依赖（onnxruntime/numpy/PySide6/decord/qfluentwidgets，**不含 CUDA/TensorRT**）→ 装 PyInstaller → 按 `scripts/VideoSubtitleExtractor.spec` 冻结 GUI，产物 `dist\VideoSubtitleExtractor\`（onedir；引擎源码、OCR 模型、decord 解码后端已随包；spec 已排除未用依赖） |
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\setup.ps1      # 首次
