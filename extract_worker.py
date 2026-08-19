@@ -10,7 +10,9 @@ from engine_bootstrap import ensure_engine_path  # noqa: E402
 ensure_engine_path()
 
 from video_ocr_engine import FieldExtractor  # noqa: E402
-from subtitle_extract_cli import build_rows, write_csv  # noqa: E402
+from subtitle_extract_cli import (  # noqa: E402
+    build_rows, postprocess_rows, write_csv,
+)
 
 
 class _Cancelled(Exception):
@@ -31,7 +33,8 @@ class ExtractWorker(QThread):
     failed = Signal(str)
 
     def __init__(self, video: Path, roi: tuple, start: int, end: int,
-                 stride: int, out: Path, parent=None) -> None:
+                 stride: int, out: Path, postprocess: bool = True,
+                 parent=None) -> None:
         super().__init__(parent)
         self.video = video
         self.roi = roi
@@ -39,6 +42,7 @@ class ExtractWorker(QThread):
         self.end = end
         self.stride = stride
         self.out = out
+        self.postprocess = postprocess
         self._cancelled = False
 
     def cancel(self) -> None:
@@ -58,6 +62,8 @@ class ExtractWorker(QThread):
             )
             result = ex.extract()
             rows = build_rows(result)
+            if self.postprocess:
+                rows = postprocess_rows(rows)
             write_csv(self.out, rows)
             self.succeeded.emit(len(rows), str(self.out), result.fps or 0.0)
         except _Cancelled:

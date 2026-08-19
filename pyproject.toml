@@ -26,12 +26,15 @@ subtitle-extract-gui = "gui:main"
 
 [tool.setuptools]
 py-modules = [
+    "app_config",
     "engine_bootstrap",
     "extract_worker",
     "gui",
+    "gui_settings",
     "gui_video",
     "preview_widget",
     "subtitle_extract_cli",
+    "theme_manager",
     "widget_utils",
 ]
 

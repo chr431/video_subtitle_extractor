@@ -82,3 +82,33 @@ def test_parse_args_defaults_and_override():
 def test_main_missing_video_returns_2(capsys):
     code = m.main(["does_not_exist.mp4", "--roi", "1", "2", "3", "4"])
     assert code == 2
+
+
+def test_postprocess_removes_duplicates_and_numeric():
+    """后处理：剔纯数字行（含全角数字）与 (time_sec, text) 重复行，保留首次出现。"""
+    rows = [
+        (1, "你好"),
+        (1, "你好"),        # 同秒同文本 → 重复，剔除
+        (2, "1"),           # 纯 ASCII 数字 → 剔除
+        (3, "１２３"),       # 全角数字 → isdigit 为真 → 剔除
+        (4, " "),           # 空白文本 → 剔除
+        (5, "你好"),        # 不同秒同文本 → 保留（非重复）
+        (6, "a123"),        # 非纯数字 → 保留
+        (6, "a123"),        # 重复 → 剔除
+        (7, ""),            # 空串 → 剔除
+    ]
+    assert m.postprocess_rows(rows) == [(1, "你好"), (5, "你好"), (6, "a123")]
+
+
+def test_postprocess_keeps_distinct_same_text():
+    """同一文本在不同秒数不算重复（字幕持续多行应保留）。"""
+    rows = [(10, "我们继续"), (11, "我们继续"), (11, "我们继续")]
+    assert m.postprocess_rows(rows) == [(10, "我们继续"), (11, "我们继续")]
+
+
+def test_parse_args_default_postprocess_on():
+    """默认开启后处理；--no-postprocess 可关闭。"""
+    a = m.parse_args(["v.mp4", "--roi", "1", "2", "3", "4"])
+    assert a.postprocess is True
+    b = m.parse_args(["v.mp4", "--roi", "1", "2", "3", "4", "--no-postprocess"])
+    assert b.postprocess is False

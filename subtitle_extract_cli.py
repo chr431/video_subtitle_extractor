@@ -65,6 +65,32 @@ def build_rows(result: ExtractionResult) -> list[tuple[int, str]]:
     return rows
 
 
+def postprocess_rows(rows: list[tuple[int, str]]) -> list[tuple[int, str]]:
+    """简单后处理：剔除“纯数字行”与“(time_sec, text) 重复行”，保留首次出现。
+
+    - 纯数字行：text 去掉首尾空白后仅由数字组成（含全角数字，如 OCR 把
+      画面中的小数字误当成字幕提出来）。空文本行也一并丢弃。
+    - 重复行：完全相同的 (time_sec, text) 只保留第一条；不同秒数的相同
+      文本（字幕持续多行）不算重复，保留。
+    """
+    seen: set[tuple[int, str]] = set()
+    out: list[tuple[int, str]] = []
+    for time_sec, text in rows:
+        if not text:
+            continue
+        stripped = text.strip()
+        if not stripped:
+            continue          # 纯空白
+        if stripped.isdigit():
+            continue          # 纯数字（含全角）
+        key = (time_sec, text)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((time_sec, text))
+    return out
+
+
 def default_output_path(video: Path) -> Path:
     """默认输出：<视频目录>/<视频名>_subtitles.csv。"""
     return video.with_name(video.stem + "_subtitles.csv")
@@ -96,6 +122,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--sample-stride", dest="sample_stride", type=int, default=1,
                    help="分频采样步长（默认 1=逐帧；>1 时只处理每个第 N 帧，"
                         "适合字幕等慢更新内容降低解码/处理压力；需 decord ≥0.7.12）")
+    p.add_argument("--no-postprocess", dest="postprocess", action="store_false", default=True,
+                   help="关闭后处理（默认开启：剔除重复行与纯数字行）")
     p.add_argument("-o", "--output", default=None,
                    help="输出 CSV 路径（默认 <视频名>_subtitles.csv）")
     return p.parse_args(argv)
@@ -141,6 +169,11 @@ def main(argv: list[str] | None = None) -> int:
           file=sys.stderr)
     result = ex.extract()
     rows = build_rows(result)
+    raw_count = len(rows)
+    if args.postprocess:
+        rows = postprocess_rows(rows)
+        if len(rows) != raw_count:
+            print(f"后处理: 剔除 {raw_count - len(rows)} 行（重复/纯数字）", file=sys.stderr)
     write_csv(out, rows)
 
     print(f"完成: {video.name} -> {len(rows)} 条文本 (fps={result.fps:.3f})")

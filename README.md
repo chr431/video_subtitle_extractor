@@ -65,19 +65,23 @@ python subtitle_extract_cli.py episode.mkv --roi 10 850 1910 940 \
 subtitle-extract episode.mkv --roi 10 850 1910 940 -o subtitles.csv
 ```
 
-### GUI（导入视频 → 选 ROI/帧范围 → 导出）
+### GUI（Pivot 导航：提取 + 设置 两页）
 
 ```bash
 python gui.py                     # 或 pip 安装后: subtitle-extract-gui
 # 或一键: powershell -ExecutionPolicy Bypass -File scripts\run_gui.ps1
 ```
 
-- **导入视频**：打开文件并载入元信息与首帧（预览显示）
-- **选 ROI**：在预览画面上**拖拽框选**字幕条区域，或用右侧「识别范围（像素）」spinbox 微调
-- **帧范围**：`开始帧 / 结束帧`（默认全片；可用当前帧设为起点/终点）
-- **采样步长**：`1`=逐帧；`>1`=分频采样（字幕等慢更新内容）
-- **导出字幕 CSV**：后台线程跑引擎（进度条实时反馈），写 `time_sec,text` 两列 CSV；
-  可随时「取消」
+GUI 框架对齐 RaceVideoToLog：**Pivot 左侧导航（提取 / 设置）+ 底部状态栏
++ 主题切换**（右上角 ☀/☾，即时切换且持久化；设置页可选 浅色/深色/跟随系统），
+应用级设置用 **QConfig 持久化**到 `config/app_config.json`。
+
+- **提取页**：**导入视频** → 载入元信息与首帧（预览显示）
+  - **选 ROI**：预览画面上**拖拽框选**字幕条区域，或用「识别范围（像素）」spinbox 微调
+  - **帧范围 / 采样步长**：默认全片；可用当前预览帧设为起点/终点；`1`=逐帧、`>1`=分频
+  - **输出 CSV**：路径 + 浏览；后台线程跑引擎（进度条实时反馈），可随时「取消」
+  - **导出后处理**（默认开启）：剔除重复行与纯数字行（可在「设置」页关闭）
+- **设置页**：主题模式 / 默认输出目录 / 导出后处理开关（改动即时保存）
 
 ### 参数（CLI）
 
@@ -88,6 +92,7 @@ python gui.py                     # 或 pip 安装后: subtitle-extract-gui
 | `--start-frame N` | 0 | 开始帧号 |
 | `--end-frame N` | 到末尾 | 结束帧号（0 视为末尾） |
 | `--sample-stride N` | 1 | 分频采样步长：只处理每个第 N 帧（字幕等慢更新内容） |
+| `--no-postprocess` | 关 | 关闭后处理（默认开启：剔除重复行与纯数字行） |
 | `-o, --output` | `<视频名>_subtitles.csv` | 输出 CSV 路径 |
 
 解码/OCR 后端用演示默认：`decode=auto`（GPU 优先回退 CPU）、`OCR=cpu`（ONNX，
@@ -105,6 +110,9 @@ python gui.py                     # 或 pip 安装后: subtitle-extract-gui
 - `time_sec`：段代表帧（识别帧）在视频中的实际秒数（绝对帧号 ÷ 引擎自测 fps，
   四舍五入到秒）。`--sample-stride>1` 时最多偏移 `(stride-1)/fps` 秒。
 - `text`：OCR 原始文本，原样输出（不解析/过滤/规整）；无文本的段跳过。
+- **后处理**（默认开启，`--no-postprocess` 关闭 / 设置页开关）：剔除
+  「纯数字行」（`isdigit`，含全角数字）与「(time_sec, text) 重复行」；
+  不同秒数的相同文本（字幕持续多行）不算重复，予以保留。
 
 ## 测试
 

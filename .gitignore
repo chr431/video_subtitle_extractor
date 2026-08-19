@@ -19,6 +19,9 @@ dist/
 # decord fork 发布产物（scripts/setup.ps1 缓存/读取）
 _decord_build/
 
+# 运行时 GUI 设置（QConfig 持久化）
+config/
+
 # 运行产物
 *.mp4
 *.mkv

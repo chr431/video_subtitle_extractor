@@ -1,30 +1,61 @@
 """Video Subtitle Extractor — PySide6 + qfluentwidgets GUI 主窗口。
 
-基础流程：导入视频 → 设置识别范围（预览拖拽 ROI）与帧范围 → 导出字幕 CSV。
-识别链复用通用引擎（chr431/video_ocr_engine submodule），后台线程跑
-FieldExtractor；CSV 两列：秒级时间戳 + 原始 OCR 文本。
+对标 RaceVideoToLog 的 GUI 框架：Pivot 左侧导航 + 多页面（提取 / 设置）
++ 底部状态栏 + 主题切换（ThemeManager）+ QConfig 设置持久化；页内保持
+字幕提取领域功能（导入视频 / ROI 预览 / 帧范围 / 采样 / 导出字幕 CSV）。
 
 入口：
     python gui.py            # 或 pip 安装后: subtitle-extract-gui
 """
 from __future__ import annotations
 
+import ctypes
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QImage, QKeySequence, QShortcut
+from PySide6.QtGui import QColor, QImage, QKeySequence, QPalette, QShortcut
 from PySide6.QtWidgets import (
-    QGridLayout, QHBoxLayout, QMainWindow, QStackedWidget, QVBoxLayout, QWidget,
+    QFileDialog, QGridLayout, QHBoxLayout, QMainWindow, QMessageBox,
+    QStackedWidget, QVBoxLayout, QWidget,
 )
 from qfluentwidgets import (
-    BodyLabel, CaptionLabel, CompactSpinBox, LineEdit, PrimaryPushButton,
+    BodyLabel, CaptionLabel, CompactSpinBox, LineEdit, Pivot, PrimaryPushButton,
     ProgressBar, PushButton, Slider, StrongBodyLabel,
+    isDarkTheme, qconfig, setTheme, Theme,
 )
 
+from app_config import app_config
 from extract_worker import ExtractWorker
+from gui_settings import build_settings_page, build_settings_panel
 from gui_video import VideoLoadMixin
 from preview_widget import PreviewWidget
+from theme_manager import ThemeManager
 from widget_utils import disable_spin_flyout, make_static_card, set_value_silent
+
+# ═══════════════════ 主题颜色常量 ═══════════════════
+CANVAS_BG_DARK = "#1f1f1f"
+CANVAS_BG_LIGHT = "#ffffff"
+CANVAS_FG_DARK = "#f0f0f0"
+CANVAS_FG_LIGHT = "#000000"
+
+# ── qfluentwidgets watcher 保护（移植自 RaceVideoToLog）──
+# widget 销毁时 Paint/DynamicPropertyChange 事件会触发
+# "Internal C++ object already deleted"（PySide6 已知问题）。把
+# RuntimeError 捕获并忽略，避免 stderr 刷屏。
+import qfluentwidgets.common.style_sheet as _qfw_ss  # noqa: E402
+
+for _watcher_cls in (_qfw_ss.CustomStyleSheetWatcher,
+                     _qfw_ss.DirtyStyleSheetWatcher):
+    _orig_event_filter = _watcher_cls.eventFilter
+
+    def _safe_event_filter(self, obj, e, _orig=_orig_event_filter):
+        try:
+            return _orig(self, obj, e)
+        except RuntimeError:
+            return False
+
+    _watcher_cls.eventFilter = _safe_event_filter
 
 
 class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
@@ -33,8 +64,8 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Video Subtitle Extractor")
-        self.resize(1240, 820)
-        self.setMinimumSize(1040, 700)
+        self.resize(1500, 920)
+        self.setMinimumSize(1100, 760)
 
         # ── 状态变量 ──
         self.video_path: Path | None = None
@@ -50,6 +81,8 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         self._build_ui()
         self._connect_signals()
         self._add_shortcuts()
+        self._register_theme_callbacks()
+        ThemeManager.refresh()
 
     # ═══════════════════ 构建 UI ═══════════════════
 
@@ -58,7 +91,63 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
         root.setContentsMargins(12, 8, 12, 6)
-        root.setSpacing(8)
+        root.setSpacing(0)
+
+        # ── 顶栏：Pivot 导航 + 主题按钮 ──
+        top_bar = QWidget()
+        tbl = QHBoxLayout(top_bar)
+        tbl.setContentsMargins(0, 0, 0, 4)
+        self._tab_pivot = Pivot(self)
+        self._tab_pivot.setFixedWidth(160)
+        tbl.addWidget(self._tab_pivot)
+        tbl.addStretch()
+        self._theme_btn = PushButton("☀" if not isDarkTheme() else "☾")
+        self._theme_btn.setFixedSize(36, 28)
+        self._theme_btn.setToolTip("切换亮色/暗色主题")
+        self._theme_btn.clicked.connect(self._toggle_theme)
+        tbl.addWidget(self._theme_btn)
+        root.addWidget(top_bar)
+
+        # ── 页栈 ──
+        self._tab_stack = QStackedWidget()
+        root.addWidget(self._tab_stack, 1)
+
+        self._extract_tab = QWidget()
+        self._tab_stack.addWidget(self._extract_tab)
+        self._build_extract_tab()
+
+        self._settings_tab = QWidget()
+        self._tab_stack.addWidget(self._settings_tab)
+        sl = QVBoxLayout(self._settings_tab)
+        sl.setContentsMargins(0, 6, 0, 0)
+        sl.setSpacing(8)
+        sl.addWidget(build_settings_page(self._settings_tab))
+        sl.addStretch()
+
+        self._tab_pivot.addItem('extract', '提取',
+                                lambda: self._tab_stack.setCurrentIndex(0))
+        self._tab_pivot.addItem('settings', '设置',
+                                lambda: self._tab_stack.setCurrentIndex(1))
+        self._tab_pivot.setCurrentItem('extract')
+        self._tab_pivot.currentItemChanged.connect(self._on_pivot)
+
+        # ── 底部状态栏 ──
+        self._footer = QWidget()
+        fl = QVBoxLayout(self._footer)
+        fl.setContentsMargins(0, 6, 0, 0)
+        self._status_label = BodyLabel("请导入视频并设置识别范围。")
+        self._progress_bar = ProgressBar()
+        self._progress_bar.setRange(0, 100)
+        self._progress_bar.setValue(0)
+        self._progress_bar.setTextVisible(True)
+        fl.addWidget(self._status_label)
+        fl.addWidget(self._progress_bar)
+        root.addWidget(self._footer)
+
+    def _build_extract_tab(self) -> None:
+        layout = QVBoxLayout(self._extract_tab)
+        layout.setContentsMargins(0, 6, 0, 0)
+        layout.setSpacing(8)
 
         # ── 顶栏 ──
         hdr = QHBoxLayout()
@@ -72,7 +161,7 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         self._cancel_btn = PushButton("取消")
         self._cancel_btn.setEnabled(False)
         hdr.addWidget(self._cancel_btn)
-        root.addLayout(hdr)
+        layout.addLayout(hdr)
 
         # ── 视频信息 ──
         info = make_static_card()
@@ -90,73 +179,22 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
             wl.addWidget(l)
             il.addWidget(w)
         il.addStretch()
-        root.addWidget(info)
+        layout.addWidget(info)
 
-        # ── 主内容：左参数 / 右预览 ──
+        # ── 主内容：左参数面板 / 右预览 ──
         main_w = QHBoxLayout()
         main_w.setSpacing(12)
-        left = self._build_left_panel()
+        left = QWidget()
+        left.setFixedWidth(420)
+        self._settings = build_settings_panel(left)
+        for _k, _v in self._settings.items():
+            setattr(self, _k, _v)
         main_w.addWidget(left)
         right = QVBoxLayout()
         right.setSpacing(8)
         self._build_right_panel(right)
         main_w.addLayout(right, 1)
-        root.addLayout(main_w, 1)
-
-        # ── 底部状态 ──
-        self._status_label = BodyLabel("请导入视频并设置识别范围。")
-        self._progress_bar = ProgressBar()
-        self._progress_bar.setRange(0, 100)
-        self._progress_bar.setValue(0)
-        self._progress_bar.setTextVisible(True)
-        root.addWidget(self._status_label)
-        root.addWidget(self._progress_bar)
-
-    def _build_left_panel(self) -> QWidget:
-        left = QWidget()
-        left.setFixedWidth(360)
-        ll = QVBoxLayout(left)
-        ll.setContentsMargins(0, 0, 0, 0)
-        ll.setSpacing(8)
-
-        # ── 帧范围 + 采样 ──
-        range_card = make_static_card()
-        rgl = QGridLayout(range_card)
-        rgl.addWidget(StrongBodyLabel("识别范围（帧）"), 0, 0, 1, 4)
-        self.frame_start = CompactSpinBox()
-        self.frame_end = CompactSpinBox()
-        for s in (self.frame_start, self.frame_end):
-            s.setRange(0, 1)
-        self._set_start_btn = PushButton("设为首帧")
-        self._set_end_btn = PushButton("设为尾帧")
-        self._set_start_btn.setFixedSize(72, 30)
-        self._set_end_btn.setFixedSize(72, 30)
-        rgl.addWidget(CaptionLabel("开始帧"), 1, 0)
-        rgl.addWidget(self.frame_start, 1, 1)
-        rgl.addWidget(self._set_start_btn, 1, 2)
-        rgl.addWidget(CaptionLabel("结束帧"), 2, 0)
-        rgl.addWidget(self.frame_end, 2, 1)
-        rgl.addWidget(self._set_end_btn, 2, 2)
-        self.sample_stride = CompactSpinBox()
-        self.sample_stride.setRange(1, 30)
-        self.sample_stride.setValue(1)
-        rgl.addWidget(CaptionLabel("采样步长"), 3, 0)
-        rgl.addWidget(self.sample_stride, 3, 1)
-        rgl.addWidget(CaptionLabel("(1=逐帧；>1 分频)"), 3, 2, 1, 2)
-        ll.addWidget(range_card)
-
-        # ── 输出 ──
-        out_card = make_static_card()
-        ol = QGridLayout(out_card)
-        ol.addWidget(StrongBodyLabel("导出"), 0, 0, 1, 3)
-        self.output_edit = LineEdit()
-        self.output_edit.setPlaceholderText("<视频名>_subtitles.csv")
-        ol.addWidget(self.output_edit, 1, 0, 1, 2)
-        self._browse_btn = PushButton("浏览…")
-        ol.addWidget(self._browse_btn, 1, 2)
-        ll.addWidget(out_card)
-        ll.addStretch()
-        return left
+        layout.addLayout(main_w, 1)
 
     def _build_right_panel(self, rl: QVBoxLayout) -> None:
         # ── ROI ──
@@ -170,7 +208,6 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         for s in (self.roi_x1, self.roi_y1, self.roi_x2, self.roi_y2):
             s.setRange(0, 9999)
             s.setFixedWidth(90)
-            # 默认一个居中小框（视频载入后按尺寸截断上限）
         self.roi_x1.setValue(0)
         self.roi_y1.setValue(0)
         self.roi_x2.setValue(100)
@@ -214,8 +251,10 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         self._import_video_btn.clicked.connect(self._import_video)
         self._export_btn.clicked.connect(self._export_csv)
         self._cancel_btn.clicked.connect(self._cancel_export)
-        self._set_start_btn.clicked.connect(lambda: set_value_silent(self.frame_start, self._slider.value()))
-        self._set_end_btn.clicked.connect(lambda: set_value_silent(self.frame_end, self._slider.value()))
+        self._set_start_btn.clicked.connect(
+            lambda: set_value_silent(self.frame_start, self._slider.value()))
+        self._set_end_btn.clicked.connect(
+            lambda: set_value_silent(self.frame_end, self._slider.value()))
         self._browse_btn.clicked.connect(self._pick_output)
 
     def _add_shortcuts(self) -> None:
@@ -225,10 +264,13 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         QShortcut(QKeySequence(Qt.Key.Key_Down), self, lambda: self._step(-10))
 
     def _pick_output(self) -> None:
-        from PySide6.QtWidgets import QFileDialog
+        initial = str(app_config.outputDir.value) if app_config.outputDir.value else ""
         path, _ = QFileDialog.getSaveFileName(
-            self, "导出字幕 CSV", str(self.video_path.with_name("subtitles.csv"))
-            if self.video_path else "subtitles.csv", "CSV 文件 (*.csv);;所有文件 (*.*)")
+            self, "导出字幕 CSV",
+            str(Path(initial) / "subtitles.csv") if initial
+            else (str(self.video_path.with_name("subtitles.csv"))
+                  if self.video_path else "subtitles.csv"),
+            "CSV 文件 (*.csv);;所有文件 (*.*)")
         if path:
             self.output_edit.setText(path)
 
@@ -236,7 +278,6 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
 
     def _export_csv(self) -> None:
         if self.metadata is None:
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "提示", "请先导入视频。")
             return
         if self._worker is not None and self._worker.isRunning():
@@ -244,11 +285,9 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         x1, y1, x2, y2 = (s.value() for s in (self.roi_x1, self.roi_y1,
                                                self.roi_x2, self.roi_y2))
         if x2 <= x1 or y2 <= y1:
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "提示", "识别范围无效：右下必须大于左上（像素）。")
             return
         if self.frame_end.value() <= self.frame_start.value():
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "提示", "帧范围无效：结束帧必须大于开始帧。")
             return
         out_text = self.output_edit.text().strip()
@@ -258,18 +297,19 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         try:
             out.parent.mkdir(parents=True, exist_ok=True)
         except Exception as e:
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "输出路径无效", str(e))
             return
 
         self._export_btn.setEnabled(False)
         self._cancel_btn.setEnabled(True)
         self._progress_bar.setValue(0)
-        self._status_label.setText("正在识别…（解码 + 分段 + OCR）")
+        self._status_label.setText(f"正在识别…（解码 + 分段 + OCR"
+                                   f"{' + 后处理' if app_config.postProcess.value else ''}）")
         worker = ExtractWorker(
             self.video_path, (x1, y1, x2, y2),
             self.frame_start.value(), self.frame_end.value(),
-            self.sample_stride.value(), out)
+            self.sample_stride.value(), out,
+            postprocess=bool(app_config.postProcess.value))
         worker.progress.connect(self._on_export_progress)
         worker.succeeded.connect(self._on_export_done)
         worker.failed.connect(self._on_export_failed)
@@ -281,7 +321,6 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         self._progress_bar.setValue(int(round(max(0.0, min(100.0, pct)))))
 
     def _on_export_done(self, rows: int, out: str, fps: float) -> None:
-        from PySide6.QtWidgets import QMessageBox
         self._export_btn.setEnabled(True)
         self._cancel_btn.setEnabled(False)
         self._progress_bar.setValue(100)
@@ -289,7 +328,6 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         QMessageBox.information(self, "完成", f"已导出 {rows} 条字幕到：\n{out}")
 
     def _on_export_failed(self, msg: str) -> None:
-        from PySide6.QtWidgets import QMessageBox
         self._export_btn.setEnabled(True)
         self._cancel_btn.setEnabled(False)
         self._progress_bar.setValue(0)
@@ -303,6 +341,52 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
             w.cancel()
             self._status_label.setText("正在取消…")
 
+    # ═══════════════════ 主题 ═══════════════════
+
+    def _register_theme_callbacks(self) -> None:
+        def _update_bg(dark: bool) -> None:
+            bg = CANVAS_BG_DARK if dark else CANVAS_BG_LIGHT
+            fg = CANVAS_FG_DARK if dark else CANVAS_FG_LIGHT
+            for w in (self, self.centralWidget()):
+                if w is None:
+                    continue
+                p = w.palette()
+                p.setColor(QPalette.ColorRole.Window, QColor(bg))
+                p.setColor(QPalette.ColorRole.Base, QColor(bg))
+                p.setColor(QPalette.ColorRole.WindowText, QColor(fg))
+                p.setColor(QPalette.ColorRole.Text, QColor(fg))
+                p.setColor(QPalette.ColorRole.ButtonText, QColor(fg))
+                w.setPalette(p)
+        ThemeManager.register(_update_bg)
+
+        def _update_titlebar(dark: bool) -> None:
+            if sys.platform != "win32":
+                return
+            try:
+                hwnd = int(self.winId())
+                val = ctypes.c_int(1 if dark else 0)
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, 20, ctypes.byref(val), ctypes.sizeof(val))
+            except Exception:
+                pass
+        ThemeManager.register(_update_titlebar)
+
+        def _update_icon(dark: bool) -> None:
+            self._theme_btn.setText("☀" if not dark else "☾")
+        ThemeManager.register(_update_icon)
+
+        self._theme_callbacks = [_update_bg, _update_titlebar, _update_icon]
+
+    def _toggle_theme(self) -> None:
+        if qconfig.theme == Theme.DARK:
+            setTheme(Theme.LIGHT)
+        else:
+            setTheme(Theme.DARK)
+        ThemeManager.refresh()
+
+    def _on_pivot(self, key: str) -> None:
+        self._footer.setVisible(key == "extract")
+
     def closeEvent(self, event) -> None:
         try:
             self._cancel_export()
@@ -314,15 +398,21 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
                 w.wait(3000)
             except Exception:
                 pass
+        for cb in getattr(self, "_theme_callbacks", []):
+            try:
+                ThemeManager.unregister(cb)
+            except Exception:
+                pass
         super().closeEvent(event)
 
 
 def main() -> int:
     import sys
     from PySide6.QtWidgets import QApplication
-    from qfluentwidgets import Theme, setTheme
+    from app_config import load_app_config
+    load_app_config()
     app = QApplication(sys.argv)
-    setTheme(Theme.AUTO)
+    setTheme(Theme(qconfig.themeMode.value))
     window = SubtitleExtractorApp()
     window.show()
     return app.exec()

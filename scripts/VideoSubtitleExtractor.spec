@@ -45,7 +45,8 @@ hiddenimports = [
     'numpy._core.umath', 'numpy._core._methods',
     'decord',
     # 本项目模块（显式列出更稳）
-    'gui', 'gui_video', 'extract_worker', 'preview_widget', 'widget_utils',
+    'gui', 'gui_video', 'gui_settings', 'app_config', 'theme_manager',
+    'extract_worker', 'preview_widget', 'widget_utils',
     'subtitle_extract_cli', 'engine_bootstrap',
     # 引擎顶层模块与包（pathex 提供；引擎源码树亦随包）
     'engine_config', 'gpu_setup', 'hybrid_decode', 'ocr_native', 'ocr_trt',
