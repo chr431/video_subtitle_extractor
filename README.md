@@ -11,7 +11,8 @@
 - 引擎子模块：`git submodule update --init --recursive`（即 `third_party/video_ocr_engine`）
 - 引擎依赖：`numpy / onnxruntime / psutil`（`pip install -e third_party/video_ocr_engine` 或手动安装）
 - 解码 fork **chr431/decord**（NVDEC/CPU；`--sample-stride>1` 建议 **≥v0.7.12**
-  以获得等差步长快速路径，旧版退化为逐索引 seek，仍正确但更慢）
+  以获得等差步长快速路径，旧版退化为逐索引 seek，仍正确但更慢）——**解码必需**，
+  `scripts/setup.ps1` 会一键安装 v0.7.12 发布包（PyPI 版 decord 不支持本项目特性）
 - GUI：`PySide6-Essentials` + `PySide6-Fluent-Widgets`（**GPLv3**，见许可证）
 
 ## 安装
@@ -35,9 +36,9 @@ pip uninstall -y PySide6-Addons
 
 | 脚本 | 作用 |
 |------|------|
-| `scripts/setup.ps1` | **一键配置 venv**：拉引擎子模块 → 建 `.venv` → 装本项目（含 dev）+ 引擎依赖 → 尝试移除多余的 `PySide6-Addons`（省 ~400MB；会自检 Qt 导入，失败自动装回，保证 GUI 可用）。可选 `-NoDev`（只装运行时）、`-KeepAddons`（保留 Addons） |
+| `scripts/setup.ps1` | **一键配置 venv**：拉引擎子模块 → 建 `.venv` → 装本项目（含 dev）+ 引擎依赖 → 装 **decord 解码 fork**（chr431/decord v0.7.12，解码必需，`-SkipDecord` 可跳过）→ 尝试移除多余的 `PySide6-Addons`（省 ~400MB；会自检 Qt 导入，失败自动装回，保证 GUI 可用）。可选 `-NoDev`（只装运行时）、`-KeepAddons`（保留 Addons） |
 | `scripts/run_gui.ps1` | **一键启动 GUI**：用 `.venv` 的 python 运行 `gui.py`（未配置时提示先跑 setup） |
-| `scripts/build_exe.ps1` | **一键构建 frozen exe**：安装 PyInstaller → 按 `scripts/VideoSubtitleExtractor.spec` 冻结 GUI，产物在 `dist\VideoSubtitleExtractor\`（onedir，引擎源码与 OCR 模型已随包） |
+| `scripts/build_exe.ps1` | **一键构建 frozen exe**：安装 PyInstaller → 按 `scripts/VideoSubtitleExtractor.spec` 冻结 GUI，产物在 `dist\VideoSubtitleExtractor\`（onedir，引擎源码与 OCR 模型已随包；构建机需先跑 setup 以带上 decord 解码后端） |
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\setup.ps1      # 首次

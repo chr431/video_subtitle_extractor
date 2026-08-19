@@ -25,6 +25,17 @@ class VideoLoadMixin:
             return
         try:
             self._load_video(Path(path))
+        except ModuleNotFoundError as e:
+            # 解码后端缺失（decord 需自建 fork，PyPI 版不支持）→ 给出可执行提示
+            if "decord" in str(e):
+                QMessageBox.critical(self, "导入失败",
+                    "缺少视频解码依赖 decord（需自建 fork chr431/decord，PyPI 版不支持）。\n\n"
+                    "请运行一键脚本安装：\n"
+                    "    powershell -ExecutionPolicy Bypass -File scripts\\setup.ps1\n\n"
+                    "或手动从 https://github.com/chr431/decord/releases 获取发布产物后重试。")
+            else:
+                QMessageBox.critical(self, "导入失败", str(e))
+            self._status_label.setText("导入失败。")
         except Exception as e:
             QMessageBox.critical(self, "导入失败", str(e))
             self._status_label.setText("导入失败。")

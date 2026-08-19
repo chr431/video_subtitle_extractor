@@ -1,11 +1,14 @@
 ﻿<#
 .SYNOPSIS
-    一键配置虚拟环境（Windows PowerShell）：创建 .venv、安装本项目 + 引擎子模块依赖、精简 Qt 体积。
+    一键配置虚拟环境（Windows PowerShell）：创建 .venv、安装本项目 + 引擎子模块依赖
+    + decord 解码 fork、精简 Qt 体积。
 
 .DESCRIPTION
     - 自动 `git submodule update --init --recursive`（引擎 third_party/video_ocr_engine）
     - 基于仓库根目录创建 `.venv`（要求 Python 3.11+）
     - 安装本项目 editable（默认含 dev 依赖）+ 引擎子模块（numpy/onnxruntime/psutil）
+    - 安装 decord 解码 fork（chr431/decord v0.7.12，GPU/CPU 视频解码必需；PyPI 版
+      decord 不支持本项目特性），可用 -SkipDecord 跳过
     - 默认尝试移除 `PySide6-Addons`（qfluentwidgets 经 PySide6 元包装入的全量 Qt，
       可省 ~400MB；移除后自动 `import PySide6.QtWidgets` 自检，失败则自动装回，
       保证 GUI 可用），用 -KeepAddons 保留
@@ -16,11 +19,13 @@
 .EXAMPLE
     .\scripts\setup.ps1              # 标准开发环境
     .\scripts\setup.ps1 -NoDev       # 只装运行时依赖（跳过 dev）
+    .\scripts\setup.ps1 -SkipDecord  # 不安装 decord fork（解码不可用）
     .\scripts\setup.ps1 -KeepAddons  # 不移除 PySide6-Addons
 #>
 [CmdletBinding()]
 param(
     [switch]$NoDev,       # 跳过 dev 依赖（pytest 等）
+    [switch]$SkipDecord,  # 不安装 decord 解码 fork
     [switch]$KeepAddons   # 不移除 PySide6-Addons
 )
 
@@ -82,7 +87,57 @@ Write-Step "安装引擎子模块（editable，numpy/onnxruntime/psutil）..."
 & $venvPy -m pip install -e "third_party\video_ocr_engine"
 if ($LASTEXITCODE -ne 0) { Write-Error "引擎子模块安装失败"; exit 1 }
 
-# ── 5. 精简 Qt（尝试移除 Addons，自检失败自动装回，保证 GUI 可用）──
+# ── 5. decord 解码 fork（chr431/decord，GUI 导入/导出视频必需）──
+if (-not $SkipDecord) {
+    Write-Step "安装 decord 解码 fork（chr431/decord v0.7.12，GPU/CPU 解码必需）..."
+    $decordVer = "0.7.12"
+    $decordZip = Join-Path $env:TEMP "decord-$decordVer-win64-gpu.zip"
+    $decordExtract = Join-Path $env:TEMP "decord-$decordVer-win64-gpu"
+    $decordUrl = "https://github.com/chr431/decord/releases/download/v${decordVer}/decord-${decordVer}-win64-gpu.zip"
+
+    if (-not (Test-Path $decordZip)) {
+        Write-Host "    下载 $decordUrl ..."
+        $progressSave = $ProgressPreference
+        $ProgressPreference = "SilentlyContinue"   # 大文件下载提速
+        try {
+            Invoke-WebRequest -Uri $decordUrl -OutFile $decordZip
+        } catch {
+            $ProgressPreference = $progressSave
+            Write-Error "decord 发布包下载失败：$decordUrl`n$($_.Exception.Message)"
+            exit 1
+        }
+        $ProgressPreference = $progressSave
+        if (-not (Test-Path $decordZip)) { Write-Error "decord 发布包下载失败"; exit 1 }
+    }
+
+    $decordMarker = Join-Path $decordExtract "_decord_build\python\decord\__init__.py"
+    if (-not (Test-Path $decordMarker)) {
+        Write-Host "    解压发布包 ..."
+        Remove-Item -Recurse -Force $decordExtract -ErrorAction SilentlyContinue
+        Expand-Archive -Path $decordZip -DestinationPath $decordExtract
+    }
+
+    # 纯 Python decord 包 + 原生 decord.dll/FFmpeg dll 装入 site-packages\decord
+    $decordSite = Join-Path (Split-Path $venvPy) "Lib\site-packages\decord"
+    if (Test-Path $decordSite) { Remove-Item -Recurse -Force $decordSite }
+    Copy-Item -Recurse -Force (Join-Path $decordExtract "_decord_build\python\decord") $decordSite
+    Get-ChildItem (Join-Path $decordExtract "_decord_build\*.dll") | Copy-Item -Destination $decordSite -Force
+    Copy-Item -Force (Join-Path $decordExtract "_decord_build\ffprobe.exe") $decordSite -ErrorAction SilentlyContinue
+
+    # 自检：decord 通过 ctypes 加载 decord.dll；失败多为杀毒/安全策略拦 DLL
+    $prevEap2 = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    & $venvPy -c "from decord import VideoReader, cpu" 2>&1 | Out-Null
+    $decordOk = ($LASTEXITCODE -eq 0)
+    $ErrorActionPreference = $prevEap2
+    if (-not $decordOk) {
+        Write-Error "decord fork 安装后导入自检失败（请检查杀毒软件是否拦截了 decord 目录下的 DLL）。"
+        exit 1
+    }
+    Write-Host "    ✓ decord v$decordVer 就绪。"
+}
+
+# ── 6. 精简 Qt（尝试移除 Addons，自检失败自动装回，保证 GUI 可用）──
 if (-not $KeepAddons) {
     Write-Step "尝试移除 PySide6-Addons（qfluentwidgets 装入的全量 Qt，可省 ~400MB）..."
     & $venvPy -m pip uninstall -y PySide6-Addons *> $null
@@ -108,5 +163,5 @@ Write-Host "✔ 配置完成" -ForegroundColor Green
 Write-Host "  启动 GUI   :  .\scripts\run_gui.ps1"
 Write-Host "  构建 frozen:  .\scripts\build_exe.ps1"
 Write-Host "  跑测试     :  & .\.venv\Scripts\python.exe -m pytest tests/ -v"
-Write-Host "  （可选）安装 decord fork（chr431/decord >=v0.7.12）以获得 GPU/快速解码，见引擎 README。"
+Write-Host "  （已含 decord v0.7.12 解码 fork；如需卸载可删 .venv\Lib\site-packages\decord）"
 Write-Host ""

@@ -38,6 +38,18 @@ Write-Host "[build] 安装构建依赖（pyinstaller）..." -ForegroundColor Cya
 & $py -m pip install -e ".[build]"
 if ($LASTEXITCODE -ne 0) { Write-Error "构建依赖安装失败"; exit 1 }
 
+# decord 是视频解码后端；构建机缺它会做进一个无法解码视频的 exe，这里先拦下。
+Write-Host "[build] 检查 decord 解码依赖 ..."
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+& $py -c "import decord" 2>&1 | Out-Null
+$decordOk = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $prevEap
+if (-not $decordOk) {
+    Write-Error "未检测到 decord 解码 fork。请先运行:  powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 （一键会安装 chr431/decord 解码后端）"
+    exit 1
+}
+
 Write-Host "[build] 运行 PyInstaller（spec: scripts\VideoSubtitleExtractor.spec）..." -ForegroundColor Cyan
 & $py -m PyInstaller "scripts\VideoSubtitleExtractor.spec" --noconfirm --clean
 if ($LASTEXITCODE -ne 0) { Write-Error "PyInstaller 构建失败"; exit 1 }

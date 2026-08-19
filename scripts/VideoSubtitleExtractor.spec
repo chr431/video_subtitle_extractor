@@ -41,6 +41,31 @@ def _optional(pkg: str) -> list:
         return []
 
 
+def _decord_datas() -> list:
+    r"""decord fork 的 ctypes 运行时 dll（decord.dll/FFmpeg dll/ffprobe.exe）。
+
+    decord 的纯 Python 层由 hiddenimport 收集进 PYZ；这些 dll 是运行时用
+    ctypes 按 __file__ 相对路径（ffi_dir 上一级 _internal\decord\）或
+    DECORD_LIBRARY_PATH（见 decord_rthook.py）加载，PyInstaller 不会自动收集，
+    这里显式按 dest='decord' 打入。构建前请先跑 scripts/setup.ps1。
+    """
+    try:
+        import importlib.util
+        spec = importlib.util.find_spec("decord")
+    except (ImportError, ValueError):
+        return []
+    if spec is None or not spec.origin:
+        return []
+    pkg_dir = Path(spec.origin).parent
+    out = []
+    if pkg_dir.is_dir():
+        out += [(str(f), "decord") for f in pkg_dir.glob("*.dll")]
+        ffprobe = pkg_dir / "ffprobe.exe"
+        if ffprobe.is_file():
+            out.append((str(ffprobe), "decord"))
+    return out
+
+
 # ── 引擎源码 + 模型完整随包（排除 .git/测试/缓存）──
 # Tree 产出 (dest, src, typecode)；Analysis(datas=) 需要 (src, dest) 二元组，先翻转。
 engine_tree = Tree(
@@ -49,6 +74,8 @@ engine_tree = Tree(
     excludes=[".git", "__pycache__", ".github", ".pytest_cache", "tests", "*.pyc"],
 )
 datas = [(src, dest) for dest, src, _ in engine_tree]
+# decord fork 的 ctypes 运行时 dll（decord 存在时才有；构建前请先跑 setup.ps1）
+datas += _decord_datas()
 # qfluentwidgets 的 qss/图标等资源
 datas += collect_data_files("qfluentwidgets")
 
@@ -69,7 +96,7 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=[str(SPEC_DIR / "decord_rthook.py")],
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
