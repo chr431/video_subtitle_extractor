@@ -5,13 +5,15 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "video-subtitle-extractor"
 version = "0.1.0"
-description = "从视频固定区域提取字幕/文本的 CLI：基于 video_ocr_engine，输出 时间戳+原始文本 CSV（支持分频采样）。"
+description = "从视频固定区域提取字幕/文本：CLI + GUI（PySide6 + qfluentwidgets），基于 video_ocr_engine，输出 时间戳+原始文本 CSV（支持分频采样）。"
 readme = "README.md"
 requires-python = ">=3.11"
-license = "Apache-2.0"
+license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
 dependencies = [
-    "numpy>=2",  # 经引擎（third_party/video_ocr_engine submodule）间接需要
+    "numpy>=2",                       # 经引擎（third_party/video_ocr_engine submodule）间接需要
+    "PySide6-Essentials>=6.11",       # Qt 6 GUI（qfluentwidgets 依赖；装后移除 PySide6-Addons 省 ~400MB）
+    "PySide6-Fluent-Widgets>=1.11",   # Fluent 组件库（GPLv3，故本仓库为 GPLv3）
 ]
 
 [project.optional-dependencies]
@@ -19,11 +21,17 @@ dev = ["pytest>=8"]
 
 [project.scripts]
 subtitle-extract = "subtitle_extract_cli:main"
+subtitle-extract-gui = "gui:main"
 
 [tool.setuptools]
 py-modules = [
     "engine_bootstrap",
+    "extract_worker",
+    "gui",
+    "gui_video",
+    "preview_widget",
     "subtitle_extract_cli",
+    "widget_utils",
 ]
 
 [tool.pytest.ini_options]

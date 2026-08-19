@@ -1,8 +1,8 @@
 # video-subtitle-extractor
 
-从视频**固定区域**（字幕条/文本条）提取文本的 CLI 应用，基于通用引擎
+从视频**固定区域**（字幕条/文本条）提取文本的 **CLI + GUI** 应用，基于通用引擎
 [chr431/video_ocr_engine](https://github.com/chr431/video_ocr_engine)（git submodule
-`third_party/video_ocr_engine`，sys.path bootstrap 调用）。输出两列 CSV：
+`third_party/video_ocr_engine`，sys.path bootstrap）。输出两列 CSV：
 **秒级时间戳 + 原始 OCR 文本**（中文等，原样输出不做处理）。
 
 ## 依赖
@@ -12,6 +12,7 @@
 - 引擎依赖：`numpy / onnxruntime / psutil`（`pip install -e third_party/video_ocr_engine` 或手动安装）
 - 解码 fork **chr431/decord**（NVDEC/CPU；`--sample-stride>1` 建议 **≥v0.7.12**
   以获得等差步长快速路径，旧版退化为逐索引 seek，仍正确但更慢）
+- GUI：`PySide6-Essentials` + `PySide6-Fluent-Widgets`（**GPLv3**，见许可证）
 
 ## 安装
 
@@ -22,9 +23,14 @@ python -m venv .venv && .venv\Scripts\activate     # Windows
 pip install -e ".[dev]"
 pip install -e third_party/video_ocr_engine        # 引擎 + 其依赖
 # decord fork：从 chr431/decord v0.7.12 release 安装（见引擎 README）
+# GUI 安装后移除 PySide6-Addons（qfluentwidgets 经 PySide6 元包拉入 ~400MB，
+# 运行只需 Essentials）：
+pip uninstall -y PySide6-Addons
 ```
 
 ## 用法
+
+### CLI
 
 ```bash
 # 源码方式（仓库根目录即源码根）
@@ -39,7 +45,20 @@ python subtitle_extract_cli.py episode.mkv --roi 10 850 1910 940 \
 subtitle-extract episode.mkv --roi 10 850 1910 940 -o subtitles.csv
 ```
 
-### 参数
+### GUI（导入视频 → 选 ROI/帧范围 → 导出）
+
+```bash
+python gui.py                     # 或 pip 安装后: subtitle-extract-gui
+```
+
+- **导入视频**：打开文件并载入元信息与首帧（预览显示）
+- **选 ROI**：在预览画面上**拖拽框选**字幕条区域，或用右侧「识别范围（像素）」spinbox 微调
+- **帧范围**：`开始帧 / 结束帧`（默认全片；可用当前帧设为起点/终点）
+- **采样步长**：`1`=逐帧；`>1`=分频采样（字幕等慢更新内容）
+- **导出字幕 CSV**：后台线程跑引擎（进度条实时反馈），写 `time_sec,text` 两列 CSV；
+  可随时「取消」
+
+### 参数（CLI）
 
 | 参数 | 默认 | 说明 |
 |------|------|------|
@@ -72,10 +91,13 @@ subtitle-extract episode.mkv --roi 10 850 1910 940 -o subtitles.csv
 python -m pytest tests/ -v
 ```
 
-纯单元测试（行构建/时间戳/写文件/参数解析）无需视频/decord/GPU/OCR。
-端到端需本机安装 decord + 测试视频后手动跑 CLI。
+纯单元测试（行构建/时间戳/写文件/参数解析）无需视频/decord/GPU/OCR；GUI 冒烟
+（导入窗口构造）在 `QT_QPA_PLATFORM=offscreen` 下跑。端到端需本机安装 decord +
+测试视频后手动跑 CLI/GUI。
 
 ## 许可证
 
-Apache-2.0（应用代码为原作者原创作品；通用引擎 chr431/video_ocr_engine 亦为
-Apache-2.0）。
+**GPL-3.0-or-later**（GUI 依赖 PySide6-Fluent-Widgets 为 GPLv3，故本应用为
+GPLv3）。通用引擎 [chr431/video_ocr_engine](https://github.com/chr431/video_ocr_engine)
+是独立仓库，保持 **Apache-2.0**（作为 submodule 被本应用包含）。
+
