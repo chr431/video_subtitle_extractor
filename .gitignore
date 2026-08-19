@@ -22,3 +22,6 @@ dist/
 *.avi
 *_subtitles.csv
 *_ocr.csv
+
+# decord 帧索引缓存（脚本 CWD 下生成）
+index/
