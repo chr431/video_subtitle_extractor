@@ -258,8 +258,10 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         if x2 <= x1 or y2 <= y1:
             QMessageBox.warning(self, "提示", "识别范围无效：右下必须大于左上（像素）。")
             return
-        if self.frame_end.value() <= self.frame_start.value():
-            QMessageBox.warning(self, "提示", "帧范围无效：结束帧必须大于开始帧。")
+        # 结束帧 0 表示“到视频末尾”（与 CLI 一致），因此只有 0<end<=start 才无效
+        if (self.frame_end.value() != 0 and
+                self.frame_end.value() <= self.frame_start.value()):
+            QMessageBox.warning(self, "提示", "帧范围无效：结束帧必须大于开始帧（0 表示到视频末尾）。")
             return
 
         # ── 弹出保存对话框选择导出位置（对标参考：导出命名在弹出窗口完成）──
@@ -343,8 +345,10 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         if x2 <= x1 or y2 <= y1:
             QMessageBox.warning(self, "提示", "识别范围无效：右下必须大于左上（像素）。")
             return
-        if self.frame_end.value() <= self.frame_start.value():
-            QMessageBox.warning(self, "提示", "帧范围无效：结束帧必须大于开始帧。")
+        # 结束帧 0 表示“到视频末尾”（与 CLI 一致），只有 0<end<=start 才无效
+        if (self.frame_end.value() != 0 and
+                self.frame_end.value() <= self.frame_start.value()):
+            QMessageBox.warning(self, "提示", "帧范围无效：结束帧必须大于开始帧（0 表示到视频末尾）。")
             return
 
         # 预览第一个视频（满足“预览显示第一个视频的画面”）。

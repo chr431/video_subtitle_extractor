@@ -43,9 +43,11 @@ def build_settings_panel(parent) -> dict:
 
     start = CompactSpinBox()
     start.setRange(0, 1)
+    start.setValue(0)
     disable_spin_flyout(start)
     end = CompactSpinBox()
     end.setRange(0, 1)
+    end.setValue(1)          # 默认 0-1 合法范围；0 结束帧=到末尾由导出校验支持
     disable_spin_flyout(end)
     set_start = PushButton("设为首帧")
     set_start.setFixedSize(84, 30)
