@@ -37,6 +37,8 @@ def test_gui_constructs_smoke(app):
         assert w.backend_combo.count() == 3
         assert w.ocr_backend_combo.count() == 3
         assert not hasattr(w, "output_edit")          # 输出改为保存对话框，不再有输出框
+        assert not hasattr(w, "_settings_tab")        # 设置 tab 已删除
+        assert not hasattr(w, "_tab_pivot")           # 单页布局，无 Pivot 导航
         assert hasattr(w, "_export_btn") and hasattr(w, "_progress_bar")
     finally:
         w.close()

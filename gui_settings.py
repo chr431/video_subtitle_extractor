@@ -1,25 +1,22 @@
-"""GUI 左侧参数面板 + 设置页（对标 RaceVideoToLog 的 gui_settings 结构）。
+"""GUI 左侧参数面板（对标 RaceVideoToLog 的 gui_settings 结构）。
 
-- build_settings_panel(parent)：左侧参数卡片（识别范围帧 / 采样步长 / 导出提示 /
-  后处理），返回 widget dict。主窗口把关键控件赋为自身属性
-  （frame_start/frame_end/sample_stride/postprocess_check 等）。
-  输出命名在导出时通过保存对话框完成（对标参考）。
-- build_settings_page(parent)：设置页（主题 / 默认输出目录 / 导出后处理），
-  改动即时写回 QConfig 持久化。
+- build_settings_panel(parent)：左侧参数卡片（识别范围帧 / 采样步长 / 后端 /
+  导出后处理），返回 widget dict。主窗口把关键控件赋为自身属性
+  （frame_start/frame_end/sample_stride/postprocess_check/backend_combo/
+  ocr_backend_combo 等）。输出命名在导出时通过保存对话框完成（对标参考）。
 """
 from __future__ import annotations
 
-from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QVBoxLayout, QFileDialog
+from PySide6.QtWidgets import QGridLayout, QVBoxLayout
 from qfluentwidgets import (
-    BodyLabel, CaptionLabel, CheckBox, ComboBox, CompactSpinBox, LineEdit,
-    PushButton, StrongBodyLabel, setTheme, Theme, qconfig,
+    CaptionLabel, CheckBox, ComboBox, CompactSpinBox, PushButton,
+    StrongBodyLabel,
 )
 
 from app_config import app_config, save_app_config
-from theme_manager import ThemeManager
 from widget_utils import disable_spin_flyout, make_int_spinbox, make_static_card
 
-# 绑定到 app_config.postProcess 的所有控件（左面板 + 设置页），任一变化时同步。
+# 绑定到 app_config.postProcess 的所有控件，任一变化时同步（当前只有左面板一个）。
 _postprocess_controls: list = []
 
 
@@ -34,16 +31,6 @@ def _postprocess_changed(checked: bool, sender=None) -> None:
                 w.setChecked(bool(checked))
             finally:
                 w.blockSignals(False)
-
-
-def _apply_theme(theme: Theme) -> None:
-    setTheme(theme)          # 经 qfluentwidgets 内置 qconfig 持久化
-    ThemeManager.refresh()   # 手动刷新需要回调的控件
-
-
-def _save_out_dir(edit: LineEdit) -> None:
-    app_config.outputDir.value = edit.text().strip()
-    save_app_config()
 
 
 def build_settings_panel(parent) -> dict:
@@ -93,18 +80,16 @@ def build_settings_panel(parent) -> dict:
     backend_combo = ComboBox()
     backend_combo.addItems(["自动", "CPU", "NVDEC"])
     backend_combo.setCurrentIndex(0)          # auto
-    backend_combo.setFixedWidth(120)
+    backend_combo.setFixedWidth(96)
     widgets["backend_combo"] = backend_combo
     plg.addWidget(backend_combo, 1, 1)
     plg.addWidget(CaptionLabel("OCR 后端"), 1, 2)
     ocr_backend_combo = ComboBox()
     ocr_backend_combo.addItems(["自动", "CPU", "TensorRT"])
     ocr_backend_combo.setCurrentIndex(1)      # 默认 CPU
-    ocr_backend_combo.setFixedWidth(120)
+    ocr_backend_combo.setFixedWidth(96)
     widgets["ocr_backend_combo"] = ocr_backend_combo
     plg.addWidget(ocr_backend_combo, 1, 3)
-    plg.addWidget(CaptionLabel("TensorRT 需本机 CUDA+TensorRT（engine 从 PATH 定位）；"
-                               "OCR 无 TRT 时自动回退 ONNX。"), 2, 0, 1, 4)
 
     # ── 后处理卡 ──
     pp_card = make_static_card(parent)
@@ -116,7 +101,7 @@ def build_settings_panel(parent) -> dict:
     _postprocess_controls.append(post)
     widgets["postprocess_check"] = post
     pl.addWidget(post)
-    pl.addWidget(CaptionLabel("CLI 与 GUI 导出同时生效；可在 设置 页关闭。"))
+    pl.addWidget(CaptionLabel("CLI 与 GUI 导出同时生效。"))
 
     ll = QVBoxLayout(parent)
     ll.setContentsMargins(0, 0, 0, 0)
@@ -126,64 +111,3 @@ def build_settings_panel(parent) -> dict:
     ll.addWidget(pp_card)
     ll.addStretch()
     return widgets
-
-
-def build_settings_page(parent) -> object:
-    """设置页：主题 / 默认输出目录 / 导出后处理（QConfig 持久化）。"""
-    from PySide6.QtWidgets import QWidget
-
-    page = QWidget(parent)
-    vl = QVBoxLayout(page)
-    vl.setContentsMargins(0, 6, 0, 0)
-    vl.setSpacing(8)
-
-    # ── 界面 / 主题 ──
-    ui_card = make_static_card(page)
-    ul = QVBoxLayout(ui_card)
-    ul.addWidget(StrongBodyLabel("界面"))
-    row = QHBoxLayout()
-    row.addWidget(BodyLabel("主题"))
-    theme_combo = ComboBox()
-    theme_combo.addItems(["浅色", "深色", "跟随系统"])
-    _idx = {Theme.LIGHT: 0, Theme.DARK: 1, Theme.AUTO: 2}.get(
-        qconfig.themeMode.value, 0)
-    theme_combo.setCurrentIndex(_idx)
-    theme_combo.currentIndexChanged.connect(
-        lambda i: _apply_theme([Theme.LIGHT, Theme.DARK, Theme.AUTO][i]))
-    row.addWidget(theme_combo, 1)
-    ul.addLayout(row)
-    ul.addWidget(CaptionLabel("跟随系统 = 自动跟随 Windows 深浅色。"))
-    vl.addWidget(ui_card)
-
-    # ── 导出 ──
-    ex_card = make_static_card(page)
-    el = QGridLayout(ex_card)
-    el.addWidget(StrongBodyLabel("导出"), 0, 0, 1, 3)
-    el.addWidget(BodyLabel("默认输出目录"), 1, 0)
-    out_dir = LineEdit()
-    out_dir.setText(str(app_config.outputDir.value))
-    out_dir.setPlaceholderText("留空 = 视频所在目录")
-    el.addWidget(out_dir, 1, 1)
-
-    def _pick_dir() -> None:
-        d = QFileDialog.getExistingDirectory(page, "选择默认输出目录",
-                                             out_dir.text().strip())
-        if d:
-            out_dir.setText(d)
-
-    pick = PushButton("选择…")
-    pick.clicked.connect(_pick_dir)
-    el.addWidget(pick, 1, 2)
-    out_dir.editingFinished.connect(lambda: _save_out_dir(out_dir))
-
-    el.addWidget(BodyLabel("导出后处理"), 2, 0)
-    post = CheckBox("剔除重复行与纯数字行")
-    post.setChecked(bool(app_config.postProcess.value))
-    post.toggled.connect(lambda c, s=post: _postprocess_changed(c, sender=s))
-    _postprocess_controls.append(post)
-    el.addWidget(post, 2, 1, 1, 2)
-    el.addWidget(CaptionLabel("默认开启；CLI 与 GUI 导出同时生效。"), 3, 1, 1, 2)
-    vl.addWidget(ex_card)
-
-    vl.addStretch()
-    return page

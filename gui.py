@@ -1,8 +1,8 @@
 """Video Subtitle Extractor — PySide6 + qfluentwidgets GUI 主窗口。
 
-对标 RaceVideoToLog 的 GUI 框架：Pivot 左侧导航 + 多页面（提取 / 设置）
-+ 底部状态栏 + 主题切换（ThemeManager）+ QConfig 设置持久化；页内保持
-字幕提取领域功能（导入视频 / ROI 预览 / 帧范围 / 采样 / 导出字幕 CSV）。
+对标 RaceVideoToLog 的 GUI 格式：顶部主题切换 + 底部状态栏 + 单页主页
+（导入视频 / ROI 预览 / 帧范围 / 采样 / 后端选择 / 导出字幕 CSV），
+主题默认跟随系统（ThemeManager）。
 
 入口：
     python gui.py            # 或 pip 安装后: subtitle-extract-gui
@@ -17,17 +17,17 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QImage, QKeySequence, QPalette, QShortcut
 from PySide6.QtWidgets import (
     QFileDialog, QGridLayout, QHBoxLayout, QMainWindow, QMessageBox,
-    QStackedWidget, QVBoxLayout, QWidget,
+    QVBoxLayout, QWidget,
 )
 from qfluentwidgets import (
-    BodyLabel, CaptionLabel, CompactSpinBox, LineEdit, Pivot, PrimaryPushButton,
+    BodyLabel, CaptionLabel, CompactSpinBox, PrimaryPushButton,
     ProgressBar, PushButton, Slider, StrongBodyLabel,
     isDarkTheme, qconfig, setTheme, Theme,
 )
 
 from app_config import app_config
 from extract_worker import ExtractWorker
-from gui_settings import build_settings_page, build_settings_panel
+from gui_settings import build_settings_panel
 from gui_video import VideoLoadMixin
 from preview_widget import PreviewWidget
 from theme_manager import ThemeManager
@@ -93,13 +93,10 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         root.setContentsMargins(12, 8, 12, 6)
         root.setSpacing(0)
 
-        # ── 顶栏：Pivot 导航 + 主题按钮 ──
+        # ── 顶栏：主题按钮（主题默认跟随系统，可手动切换）──
         top_bar = QWidget()
         tbl = QHBoxLayout(top_bar)
         tbl.setContentsMargins(0, 0, 0, 4)
-        self._tab_pivot = Pivot(self)
-        self._tab_pivot.setFixedWidth(160)
-        tbl.addWidget(self._tab_pivot)
         tbl.addStretch()
         self._theme_btn = PushButton("☀" if not isDarkTheme() else "☾")
         self._theme_btn.setFixedSize(36, 28)
@@ -108,28 +105,10 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         tbl.addWidget(self._theme_btn)
         root.addWidget(top_bar)
 
-        # ── 页栈 ──
-        self._tab_stack = QStackedWidget()
-        root.addWidget(self._tab_stack, 1)
-
+        # ── 主页（所有功能都在这里）──
         self._extract_tab = QWidget()
-        self._tab_stack.addWidget(self._extract_tab)
+        root.addWidget(self._extract_tab, 1)
         self._build_extract_tab()
-
-        self._settings_tab = QWidget()
-        self._tab_stack.addWidget(self._settings_tab)
-        sl = QVBoxLayout(self._settings_tab)
-        sl.setContentsMargins(0, 6, 0, 0)
-        sl.setSpacing(8)
-        sl.addWidget(build_settings_page(self._settings_tab))
-        sl.addStretch()
-
-        self._tab_pivot.addItem('extract', '提取',
-                                lambda: self._tab_stack.setCurrentIndex(0))
-        self._tab_pivot.addItem('settings', '设置',
-                                lambda: self._tab_stack.setCurrentIndex(1))
-        self._tab_pivot.setCurrentItem('extract')
-        self._tab_pivot.currentItemChanged.connect(self._on_pivot)
 
         # ── 底部状态栏 ──
         self._footer = QWidget()
@@ -386,9 +365,6 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
             setTheme(Theme.DARK)
         ThemeManager.refresh()
 
-    def _on_pivot(self, key: str) -> None:
-        self._footer.setVisible(key == "extract")
-
     def closeEvent(self, event) -> None:
         try:
             self._cancel_export()
@@ -414,7 +390,8 @@ def main() -> int:
     from app_config import load_app_config
     load_app_config()
     app = QApplication(sys.argv)
-    setTheme(Theme(qconfig.themeMode.value))
+    # 主题默认跟随系统（可点右上角 ☀/☾ 手动切换）
+    setTheme(Theme.AUTO)
     window = SubtitleExtractorApp()
     window.show()
     return app.exec()
