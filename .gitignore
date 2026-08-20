@@ -22,6 +22,10 @@ _decord_build/
 # 运行时 GUI 设置（QConfig 持久化）
 config/
 
+# 发布产物
+*.7z
+notes.md
+
 # 运行产物
 *.mp4
 *.mkv

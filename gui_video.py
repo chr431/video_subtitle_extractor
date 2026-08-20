@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QTimer
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
@@ -53,7 +52,7 @@ class VideoLoadMixin:
             h, w = first.shape[:2]
             dur = fc / fps if fps > 0 else 0.0
         except Exception:
-            del vr
+            # 读首帧失败：直接抛出（无需 del vr，异常路径不会继续使用）
             raise RuntimeError("无法读取视频第一帧。")
 
         if self._preview_vr is not None:

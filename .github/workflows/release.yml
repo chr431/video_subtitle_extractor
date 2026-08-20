@@ -1,0 +1,134 @@
+# video_subtitle_extractor 发布工作流 — 从指定分支一键构建并发布 GitHub Release
+#
+# 手动触发（Actions → Release → Run workflow，默认 ref: main）即完成：
+#   1. 读取 pyproject.toml 的 version（单一事实源），确认 tag v<版本> 不存在
+#   2. scripts/setup.ps1 + scripts/build_exe.ps1 构建 frozen exe
+#   3. 打包 VideoSubtitleExtractor.<版本>.7z（7-Zip LZMA2 mx=9 最大压缩；
+#      exe 位于 7z 根 + _internal/，与 dist 布局一致）
+#   4. 打 tag v<版本> + push，创建 GitHub Release（notes 取自 release_notes.md 对应节）
+#
+# 只监听 workflow_dispatch（push/tag 不会二次触发）。构建失败时不产生 commit/tag/release。
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch to release from'
+        required: false
+        default: 'main'
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          token: ${{ github.token }}
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Read version + check tag
+        id: ver
+        shell: pwsh
+        run: |
+          $ver = (python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])").Trim()
+          if (-not $ver) { Write-Error "读取版本失败"; exit 1 }
+          Write-Host "Releasing version: $ver"
+          if (git tag -l "v$ver" | Select-String -Quiet "v$ver") {
+            Write-Error "tag v$ver 已存在"
+            exit 1
+          }
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$ver"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "tag=v$ver"
+
+      - name: Setup venv + deps
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build EXE
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_exe.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path "dist/VideoSubtitleExtractor/VideoSubtitleExtractor.exe")) {
+            Write-Error "dist/VideoSubtitleExtractor/VideoSubtitleExtractor.exe 未生成"
+            exit 1
+          }
+
+      - name: Package release archive (7z, max compression)
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          $sz = "C:\Program Files\7-Zip\7z.exe"
+          if (-not (Test-Path $sz)) { Write-Error "7-Zip 未找到"; exit 1 }
+          Push-Location "dist/VideoSubtitleExtractor"
+          try {
+            & $sz a -t7z -mx=9 -m0=LZMA2 -mmt=on "..\..\VideoSubtitleExtractor.$ver.7z" "*"
+            if ($LASTEXITCODE -ne 0) { throw "7z 打包失败" }
+          } finally { Pop-Location }
+          $sl = & $sz l -slt "VideoSubtitleExtractor.$ver.7z"
+          $paths = $sl | Where-Object { $_ -match "^Path = " } | ForEach-Object { ($_ -replace "^Path = ", "").Trim() }
+          $hasRootExe = $paths -contains "VideoSubtitleExtractor.exe"
+          $hasInternal = [bool]($paths | Where-Object { $_ -like "_internal\*" -or $_ -like "_internal/*" })
+          if (-not $hasRootExe -or -not $hasInternal) {
+            Write-Error "7z 布局不符：需 VideoSubtitleExtractor.exe（根）+ _internal/（与 dist 一致）"
+            exit 1
+          }
+          Write-Host "archive ready: VideoSubtitleExtractor.$ver.7z"
+
+      - name: Create tag + push
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "v$ver"
+          git push origin "v$ver"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host "tag v$ver pushed"
+
+      - name: Generate release notes
+        id: notes
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          $escaped = $ver -replace '\.', '\.'
+          $notes = [System.IO.File]::ReadAllText((Resolve-Path "release_notes.md"))
+          $m = [regex]::Match($notes, "(?ms)^## v$escaped(.*?)(?=^## v\d|\z)")
+          if (-not $m.Success) { Write-Error "release_notes.md 中未找到 v$ver 节"; exit 1 }
+          $body = ("## v$ver" + $m.Groups[1].Value).TrimEnd()
+          if ($body -match "### 待补充") {
+            Write-Error "release_notes.md 的 v$ver 节还是骨架（### 待补充）"
+            exit 1
+          }
+          $sha = (git rev-parse --short HEAD).Trim()
+          $body += "`n`n---`n构建源: ${{ inputs.ref }} @ $sha（GitHub Actions 自动构建，7-Zip 最大压缩）"
+          [System.IO.File]::WriteAllText("notes.md", $body, (New-Object System.Text.UTF8Encoding($false)))
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ steps.ver.outputs.version }}" "VideoSubtitleExtractor.${{ steps.ver.outputs.version }}.7z" `
+            --title "v${{ steps.ver.outputs.version }}" `
+            --notes-file notes.md
