@@ -105,11 +105,22 @@ def build_settings_panel(parent) -> dict:
     pl.addWidget(post)
     pl.addWidget(CaptionLabel("CLI 与 GUI 导出同时生效。"))
 
+    # ── 批量输出卡（仅批量 tab 显示）──
+    merge_card = make_static_card(parent)
+    ml = QVBoxLayout(merge_card)
+    ml.addWidget(StrongBodyLabel("批量输出"))
+    merge = CheckBox("输出为单个文件（合并为一份）")
+    widgets["merge_check"] = merge
+    ml.addWidget(merge)
+    ml.addWidget(CaptionLabel("列：视频文件名 / 时间(分:秒) / 字幕；开启后不再生成单个视频 CSV。"))
+    widgets["_merge_card"] = merge_card
+
     ll = QVBoxLayout(parent)
     ll.setContentsMargins(0, 0, 0, 0)
     ll.setSpacing(6)
     ll.addWidget(card)
     ll.addWidget(perf_card)
     ll.addWidget(pp_card)
+    ll.addWidget(merge_card)
     ll.addStretch()
     return widgets

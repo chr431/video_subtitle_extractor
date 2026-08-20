@@ -11,7 +11,7 @@ ensure_engine_path()
 
 from video_ocr_engine import FieldExtractor  # noqa: E402
 from subtitle_extract_cli import (  # noqa: E402
-    build_rows, postprocess_rows, write_csv,
+    build_rows, postprocess_rows, write_combined_csv, write_csv,
 )
 
 
@@ -96,8 +96,8 @@ class BatchExtractWorker(QThread):
 
     def __init__(self, videos: list, roi: tuple, start: int, end: int,
                  stride: int, postprocess: bool = True,
-                 decode_backend: str = "auto", ocr_backend: str = "cpu",
-                 output_dir=None, parent=None) -> None:
+                 decode_backend: str = "auto", ocr_backend: str = "auto",
+                 output_dir=None, combined_output=None, parent=None) -> None:
         super().__init__(parent)
         self.videos = list(videos)
         self.roi = roi
@@ -108,6 +108,7 @@ class BatchExtractWorker(QThread):
         self.decode_backend = decode_backend
         self.ocr_backend = ocr_backend
         self.output_dir = output_dir
+        self.combined_output = Path(combined_output) if combined_output else None
         self._cancelled = False
 
     def cancel(self) -> None:
@@ -126,13 +127,14 @@ class BatchExtractWorker(QThread):
         total = len(self.videos)
         ok = 0
         failures: list[str] = []
+        combined_rows: list[tuple[str, int, str]] = []
         for i, video in enumerate(self.videos, 1):
             if self._cancelled:
                 break
             self.progress.emit(
                 f"批量处理 {i}/{total}: {video.name}（解码+分段+OCR）",
                 (i - 1) / total * 100 if total else 0)
-            out = self._output_path(video)
+            out = self.combined_output or self._output_path(video)
             try:
                 ex = FieldExtractor(
                     str(video), self.roi,
@@ -149,7 +151,12 @@ class BatchExtractWorker(QThread):
                 rows = build_rows(result)
                 if self.postprocess:
                     rows = postprocess_rows(rows)
-                write_csv(out, rows)
+                if self.combined_output is not None:
+                    # 合并模式：先累计，结束时一次写入单文件
+                    combined_rows.extend(
+                        (video.name, t, text) for t, text in rows)
+                else:
+                    write_csv(out, rows)
                 ok += 1
                 self.video_done.emit(i, total, len(rows), str(out))
             except _Cancelled:
@@ -159,4 +166,9 @@ class BatchExtractWorker(QThread):
                 self.progress.emit(
                     f"批量处理 {i}/{total}: {video.name} 失败，继续下一个",
                     i / total * 100 if total else 0)
+        if self.combined_output is not None:
+            try:
+                write_combined_csv(self.combined_output, combined_rows)
+            except Exception as e:  # noqa: BLE001
+                failures.append(f"合并输出失败: {e}")
         self.finished.emit(ok, total, failures)

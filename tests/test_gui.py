@@ -44,6 +44,14 @@ def test_gui_constructs_smoke(app):
         assert hasattr(w, "_batch_btn")                # 批量导入按钮
         assert hasattr(w, "_batch_start_btn")          # 开始批量处理按钮
         assert not w._batch_start_btn.isEnabled()      # 初始禁用，导入文件夹后才启用
+        assert hasattr(w, "merge_check")               # 批量“输出为单个文件”选项
+        assert w._merge_card.isHidden()                # 初始在单视频 tab 隐藏
+        w._tab_pivot.setCurrentItem("batch")
+        app.processEvents()
+        assert not w._merge_card.isHidden()            # 批量 tab 显示
+        w._tab_pivot.setCurrentItem("single")
+        app.processEvents()
+        assert w._merge_card.isHidden()                # 切回单视频隐藏
     finally:
         w.close()
 
@@ -70,7 +78,9 @@ def test_batch_worker_start_and_cancel_callable():
     from pathlib import Path
     from extract_worker import BatchExtractWorker
     w = BatchExtractWorker([Path("a.mp4"), Path("b.mp4")], (0, 0, 10, 10),
-                           0, 100, 1, postprocess=True)
+                           0, 100, 1, postprocess=True,
+                           combined_output=Path("merged.csv"))
     assert callable(w.start)
     assert callable(w.cancel)
     assert len(w.videos) == 2
+    assert str(w.combined_output) == "merged.csv"

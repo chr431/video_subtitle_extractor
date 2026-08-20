@@ -130,6 +130,19 @@ def write_csv(path: Path, rows: list[tuple[int, str]]) -> None:
         w.writerows((format_timestamp(t), text) for t, text in rows)
 
 
+def write_combined_csv(path: Path, rows: list[tuple[str, int, str]]) -> None:
+    """写批量合并 CSV（三列：视频文件名 / 分:秒时间 / 字幕文本）。
+
+    rows: [(video_name, time_sec, text), ...]
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(("video", "time_mmss", "text"))
+        w.writerows((video, format_timestamp(t), text)
+                    for video, t, text in rows)
+
+
 # ═══════════════════ CLI ═══════════════════
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

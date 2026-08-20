@@ -69,6 +69,17 @@ def test_format_timestamp_mmss():
     assert m.format_timestamp(-3) == "0:00"
 
 
+def test_write_combined_csv(tmp_path):
+    """批量合并 CSV：三列 video / time_mmss / text。"""
+    out = tmp_path / "combined.csv"
+    m.write_combined_csv(out, [("a.mp4", 1, "你好"), ("b.MKV", 65, "世界")])
+    with open(out, encoding="utf-8-sig", newline="") as f:
+        data = list(csv.reader(f))
+    assert data[0] == ["video", "time_mmss", "text"]
+    assert data[1] == ["a.mp4", "0:01", "你好"]
+    assert data[2] == ["b.MKV", "1:05", "世界"]
+
+
 def test_default_output_path():
     assert m.default_output_path(Path("D:/x/abc.mp4")) == Path("D:/x/abc_subtitles.csv")
 

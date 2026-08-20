@@ -79,6 +79,7 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         self._throttle_timer.timeout.connect(self._show_throttled_frame)
         self._worker: ExtractWorker | None = None
         self._batch_videos: list = []      # 批量导入后待处理的视频列表（未开始时为空）
+        self._batch_folder: str = ""       # 最近一次批量导入选择的文件夹
 
         self._build_ui()
         self._connect_signals()
@@ -131,6 +132,8 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         self._body = QWidget()
         root.addWidget(self._body, 1)
         self._build_body()
+        # 初始在单视频 tab：隐藏批量专属“输出为单个文件”
+        self._merge_card.setVisible(False)
 
         # ── 底部状态栏（含取消）──
         self._footer = QWidget()
@@ -401,6 +404,7 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
             return
 
         self._batch_videos = videos
+        self._batch_folder = folder
         self._batch_start_btn.setEnabled(True)
         self._status_label.setText(
             f"已选择 {len(videos)} 个视频，请调整 ROI/帧范围/后端后点「开始批量处理」。")
@@ -426,6 +430,18 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
             QMessageBox.warning(self, "提示", "帧范围无效：结束帧必须大于开始帧（0 表示到视频末尾）。")
             return
 
+        # 合并输出：开启“输出为单个文件”时先让用户选择合并 CSV 路径
+        combined_output = None
+        if self.merge_check.isChecked():
+            default = str(Path(self._batch_folder) / "合并字幕.csv") \
+                if self._batch_folder else "合并字幕.csv"
+            out_text, _ = QFileDialog.getSaveFileName(
+                self, "保存合并字幕 CSV", default,
+                "CSV 文件 (*.csv);;所有文件 (*.*)")
+            if not out_text:
+                return
+            combined_output = Path(out_text)
+
         self._import_video_btn.setEnabled(False)
         self._batch_btn.setEnabled(False)
         self._batch_start_btn.setEnabled(False)
@@ -433,7 +449,8 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         self._cancel_btn.setEnabled(True)
         self._progress_bar.setValue(0)
         self._status_label.setText(
-            f"批量处理 {len(videos)} 个视频：{videos[0].parent}")
+            f"批量处理 {len(videos)} 个视频：{videos[0].parent}"
+            + ("（合并为单个文件）" if combined_output else ""))
         worker = BatchExtractWorker(
             videos, (x1, y1, x2, y2),
             self.frame_start.value(), self.frame_end.value(),
@@ -441,6 +458,7 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
             postprocess=bool(app_config.postProcess.value),
             decode_backend=("auto", "cpu", "nvdec")[self.backend_combo.currentIndex()],
             ocr_backend=("auto", "cpu", "tensorrt")[self.ocr_backend_combo.currentIndex()],
+            combined_output=combined_output,
         )
         worker.progress.connect(self._on_batch_progress)
         worker.video_done.connect(self._on_batch_video_done)
@@ -530,8 +548,11 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         ThemeManager.refresh()
 
     def _on_pivot(self, key: str) -> None:
-        """Pivot 页签切换：单视频 / 批量 对应不同操作栏。"""
+        """Pivot 页签切换：单视频 / 批量 对应不同操作栏；批量专属选项仅批量显示。"""
         self._header_stack.setCurrentIndex(0 if key == "single" else 1)
+        merge_card = getattr(self, "_merge_card", None)
+        if merge_card is not None:
+            merge_card.setVisible(key == "batch")
 
     def closeEvent(self, event) -> None:
         try:
