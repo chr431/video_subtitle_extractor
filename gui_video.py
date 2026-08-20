@@ -40,7 +40,7 @@ class VideoLoadMixin:
             QMessageBox.critical(self, "导入失败", str(e))
             self._status_label.setText("导入失败。")
 
-    def _load_video(self, path: Path) -> None:
+    def _load_video(self, path: Path, reset_range: bool = True) -> None:
         vr, _label = open_decord_vr(str(path))
         try:
             codec = vr.get_codec() or "?"
@@ -84,11 +84,12 @@ class VideoLoadMixin:
         for s, m in [(self.roi_x1, w), (self.roi_y1, h),
                      (self.roi_x2, w), (self.roi_y2, h)]:
             s.setMaximum(m - 1)
-        # 帧范围默认全片
+        # 帧范围默认全片；批量预览第一个视频时可保留用户已设范围（reset_range=False）
         for s in (self.frame_start, self.frame_end):
             s.setRange(0, fc - 1)
-        self.frame_start.setValue(0)
-        self.frame_end.setValue(fc - 1)
+        if reset_range:
+            self.frame_start.setValue(0)
+            self.frame_end.setValue(fc - 1)
         # 输出命名在导出时通过保存对话框完成（对标参考），无需在此预填
 
     def _on_preview_roi(self, x1: int, y1: int, x2: int, y2: int) -> None:

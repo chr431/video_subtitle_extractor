@@ -40,6 +40,7 @@ def test_gui_constructs_smoke(app):
         assert not hasattr(w, "_settings_tab")        # 设置 tab 已删除
         assert not hasattr(w, "_tab_pivot")           # 单页布局，无 Pivot 导航
         assert hasattr(w, "_export_btn") and hasattr(w, "_progress_bar")
+        assert hasattr(w, "_batch_btn")                # 批量处理按钮
     finally:
         w.close()
 
@@ -59,3 +60,14 @@ def test_export_worker_start_not_shadowed():
                       Path("out.csv"), postprocess=True)
     assert callable(w.start)                 # 必须是 QThread.start 方法
     assert w.start_frame == 1 and w.end_frame == 100
+
+
+def test_batch_worker_start_and_cancel_callable():
+    """批量 worker：start/cancel 可调用，且不遮蔽 QThread.start。"""
+    from pathlib import Path
+    from extract_worker import BatchExtractWorker
+    w = BatchExtractWorker([Path("a.mp4"), Path("b.mp4")], (0, 0, 10, 10),
+                           0, 100, 1, postprocess=True)
+    assert callable(w.start)
+    assert callable(w.cancel)
+    assert len(w.videos) == 2

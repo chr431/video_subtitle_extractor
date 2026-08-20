@@ -79,3 +79,84 @@ class ExtractWorker(QThread):
     def _check_cancel(self) -> None:
         if self._cancelled:
             raise _Cancelled()
+
+
+class BatchExtractWorker(QThread):
+    """批量导出 worker — 顺序处理文件夹内所有视频，逐个写 CSV。
+
+    信号:
+        progress(str, float)       — 总体进度消息 + 百分比 0-100
+        video_done(int, int, int, str) — 已完成 (序号1基, 总数, 行数, 输出路径)
+        finished(int, int, list)   — 全部结束 (成功数, 总数, 失败列表[str])
+    """
+
+    progress = Signal(str, float)
+    video_done = Signal(int, int, int, str)
+    finished = Signal(int, int, list)
+
+    def __init__(self, videos: list, roi: tuple, start: int, end: int,
+                 stride: int, postprocess: bool = True,
+                 decode_backend: str = "auto", ocr_backend: str = "cpu",
+                 output_dir=None, parent=None) -> None:
+        super().__init__(parent)
+        self.videos = list(videos)
+        self.roi = roi
+        self.start_frame = start
+        self.end_frame = end
+        self.stride = stride
+        self.postprocess = postprocess
+        self.decode_backend = decode_backend
+        self.ocr_backend = ocr_backend
+        self.output_dir = output_dir
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def _check_cancel(self) -> None:
+        if self._cancelled:
+            raise _Cancelled()
+
+    def _output_path(self, video: Path) -> Path:
+        if self.output_dir:
+            return Path(self.output_dir) / f"{video.stem}_subtitles.csv"
+        return video.with_name(f"{video.stem}_subtitles.csv")
+
+    def run(self) -> None:
+        total = len(self.videos)
+        ok = 0
+        failures: list[str] = []
+        for i, video in enumerate(self.videos, 1):
+            if self._cancelled:
+                break
+            self.progress.emit(
+                f"批量处理 {i}/{total}: {video.name}（解码+分段+OCR）",
+                (i - 1) / total * 100 if total else 0)
+            out = self._output_path(video)
+            try:
+                ex = FieldExtractor(
+                    str(video), self.roi,
+                    frame_start=self.start_frame,
+                    frame_end=None if (self.end_frame is None or self.end_frame <= 0) else self.end_frame,
+                    sample_stride=self.stride,
+                    decode_backend=self.decode_backend,
+                    ocr_backend=self.ocr_backend,
+                    progress_cb=lambda m, p: self.progress.emit(
+                        f"批量处理 {i}/{total}: {video.name} {m}", p),
+                    cancel_check=self._check_cancel,
+                )
+                result = ex.extract()
+                rows = build_rows(result)
+                if self.postprocess:
+                    rows = postprocess_rows(rows)
+                write_csv(out, rows)
+                ok += 1
+                self.video_done.emit(i, total, len(rows), str(out))
+            except _Cancelled:
+                break
+            except Exception as e:  # noqa: BLE001 — 单个失败继续处理下一个
+                failures.append(f"{video.name}: {e}")
+                self.progress.emit(
+                    f"批量处理 {i}/{total}: {video.name} 失败，继续下一个",
+                    i / total * 100 if total else 0)
+        self.finished.emit(ok, total, failures)

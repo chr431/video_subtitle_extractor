@@ -27,6 +27,21 @@ from video_ocr_engine import ExtractionResult, FieldExtractor  # noqa: E402
 
 PROG = "subtitle_extract_cli"
 
+# 批量处理支持的视频扩展名（大小写不敏感）
+VIDEO_EXTENSIONS = {
+    ".mp4", ".mkv", ".avi", ".mov", ".m4v", ".wmv", ".flv",
+    ".webm", ".ts", ".m2ts", ".mpg", ".mpeg",
+}
+
+
+def discover_videos(folder: Path) -> list[Path]:
+    """扫描文件夹内的视频文件（顶层，按文件名排序，用于批量顺序处理）。"""
+    if not folder.is_dir():
+        return []
+    return sorted(
+        p for p in folder.iterdir()
+        if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS)
+
 
 def _force_utf8_stdio() -> None:
     """Windows 控制台默认 GBK：把 stdout/stderr 改 UTF-8，防中文字符乱码。"""

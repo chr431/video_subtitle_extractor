@@ -129,3 +129,16 @@ def test_parse_args_backend_defaults_and_override():
     b = m.parse_args(["v.mp4", "--roi", "1", "2", "3", "4",
                       "--decode-backend", "nvdec", "--ocr-backend", "tensorrt"])
     assert (b.decode_backend, b.ocr_backend) == ("nvdec", "tensorrt")
+
+
+def test_discover_videos_sorted_and_extension_case_insensitive(tmp_path):
+    """批量处理：只收集视频文件，按文件名排序，扩展名大小写不敏感。"""
+    (tmp_path / "b.MKV").write_bytes(b"x")
+    (tmp_path / "a.mp4").write_bytes(b"x")
+    (tmp_path / "c.mov").write_bytes(b"x")
+    (tmp_path / "d.txt").write_bytes(b"x")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "e.mp4").write_bytes(b"x")  # 子目录不扫描（顶层）
+    found = m.discover_videos(tmp_path)
+    assert [p.name for p in found] == ["a.mp4", "b.MKV", "c.mov"]
+    assert m.discover_videos(tmp_path / "missing") == []

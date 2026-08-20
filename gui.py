@@ -26,10 +26,11 @@ from qfluentwidgets import (
 )
 
 from app_config import app_config
-from extract_worker import ExtractWorker
+from extract_worker import BatchExtractWorker, ExtractWorker
 from gui_settings import build_settings_panel
 from gui_video import VideoLoadMixin
 from preview_widget import PreviewWidget
+from subtitle_extract_cli import discover_videos
 from theme_manager import ThemeManager
 from widget_utils import disable_spin_flyout, make_static_card, set_value_silent
 
@@ -132,6 +133,8 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         hdr = QHBoxLayout()
         self._import_video_btn = PushButton("导入视频")
         hdr.addWidget(self._import_video_btn)
+        self._batch_btn = PushButton("批量处理…")
+        hdr.addWidget(self._batch_btn)
         self._file_label = BodyLabel("未导入视频")
         self._file_label.setWordWrap(True)
         hdr.addWidget(self._file_label, 1)
@@ -228,6 +231,7 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
 
     def _connect_signals(self) -> None:
         self._import_video_btn.clicked.connect(self._import_video)
+        self._batch_btn.clicked.connect(self._batch_process)
         self._export_btn.clicked.connect(self._export_csv)
         self._cancel_btn.clicked.connect(self._cancel_export)
         self._set_start_btn.clicked.connect(
@@ -277,6 +281,8 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
             QMessageBox.critical(self, "输出路径无效", str(e))
             return
 
+        self._import_video_btn.setEnabled(False)
+        self._batch_btn.setEnabled(False)
         self._export_btn.setEnabled(False)
         self._cancel_btn.setEnabled(True)
         self._progress_bar.setValue(0)
@@ -302,6 +308,8 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         self._progress_bar.setValue(int(round(max(0.0, min(100.0, pct)))))
 
     def _on_export_done(self, rows: int, out: str, fps: float) -> None:
+        self._import_video_btn.setEnabled(True)
+        self._batch_btn.setEnabled(True)
         self._export_btn.setEnabled(True)
         self._cancel_btn.setEnabled(False)
         self._progress_bar.setValue(100)
@@ -309,12 +317,98 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         QMessageBox.information(self, "完成", f"已导出 {rows} 条字幕到：\n{out}")
 
     def _on_export_failed(self, msg: str) -> None:
+        self._import_video_btn.setEnabled(True)
+        self._batch_btn.setEnabled(True)
         self._export_btn.setEnabled(True)
         self._cancel_btn.setEnabled(False)
         self._progress_bar.setValue(0)
         self._status_label.setText(f"失败：{msg}")
         if msg != "已取消":
             QMessageBox.critical(self, "导出失败", msg)
+
+    # ═══════════════════ 批量处理 ═══════════════════
+
+    def _batch_process(self) -> None:
+        if self._worker is not None and self._worker.isRunning():
+            return
+        folder = QFileDialog.getExistingDirectory(self, "选择视频文件夹", "")
+        if not folder:
+            return
+        videos = discover_videos(Path(folder))
+        if not videos:
+            QMessageBox.warning(self, "没有视频", "所选文件夹内未找到视频文件。")
+            return
+        x1, y1, x2, y2 = (s.value() for s in (self.roi_x1, self.roi_y1,
+                                               self.roi_x2, self.roi_y2))
+        if x2 <= x1 or y2 <= y1:
+            QMessageBox.warning(self, "提示", "识别范围无效：右下必须大于左上（像素）。")
+            return
+        if self.frame_end.value() <= self.frame_start.value():
+            QMessageBox.warning(self, "提示", "帧范围无效：结束帧必须大于开始帧。")
+            return
+
+        # 预览第一个视频（满足“预览显示第一个视频的画面”）。
+        # 若之前已导入过视频且设了有效帧范围，则保留该范围；否则默认全片。
+        has_custom_range = (self.metadata is not None and
+                            self.frame_end.value() > self.frame_start.value())
+        try:
+            self._load_video(videos[0], reset_range=not has_custom_range)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.critical(self, "预览失败",
+                                 f"无法预览第一个视频：\n{e}")
+            return
+
+        self._import_video_btn.setEnabled(False)
+        self._batch_btn.setEnabled(False)
+        self._export_btn.setEnabled(False)
+        self._cancel_btn.setEnabled(True)
+        self._progress_bar.setValue(0)
+        self._status_label.setText(
+            f"批量处理 {len(videos)} 个视频：{videos[0].parent}")
+        worker = BatchExtractWorker(
+            videos, (x1, y1, x2, y2),
+            self.frame_start.value(), self.frame_end.value(),
+            self.sample_stride.value(),
+            postprocess=bool(app_config.postProcess.value),
+            decode_backend=("auto", "cpu", "nvdec")[self.backend_combo.currentIndex()],
+            ocr_backend=("auto", "cpu", "tensorrt")[self.ocr_backend_combo.currentIndex()],
+        )
+        worker.progress.connect(self._on_batch_progress)
+        worker.video_done.connect(self._on_batch_video_done)
+        worker.finished.connect(self._on_batch_done)
+        self._worker = worker
+        worker.start()
+
+    def _on_batch_progress(self, msg: str, pct: float) -> None:
+        self._status_label.setText(msg)
+        self._progress_bar.setValue(int(round(max(0.0, min(100.0, pct)))))
+
+    def _on_batch_video_done(self, index: int, total: int, rows: int,
+                             out: str) -> None:
+        self._status_label.setText(
+            f"批量处理 {index}/{total}：{Path(out).name} → {rows} 条文本")
+        if total:
+            self._progress_bar.setValue(int(round(index / total * 100)))
+
+    def _on_batch_done(self, ok: int, total: int, failures: list) -> None:
+        self._import_video_btn.setEnabled(True)
+        self._batch_btn.setEnabled(True)
+        self._export_btn.setEnabled(True)
+        self._cancel_btn.setEnabled(False)
+        if ok == total:
+            self._progress_bar.setValue(100)
+        else:
+            self._progress_bar.setValue(0)
+        msg = f"批量处理完成：成功 {ok}/{total} 个视频。"
+        if failures:
+            msg += f"\n失败 {len(failures)} 个：\n" + "\n".join(failures[:10])
+            if len(failures) > 10:
+                msg += f"\n…等 {len(failures)} 个"
+            self._status_label.setText(f"批量完成：成功 {ok}/{total}（失败 {len(failures)}）")
+            QMessageBox.warning(self, "批量完成", msg)
+        else:
+            self._status_label.setText(f"批量完成：{ok}/{total} 个视频")
+            QMessageBox.information(self, "批量完成", msg)
 
     def _cancel_export(self) -> None:
         w = self._worker
