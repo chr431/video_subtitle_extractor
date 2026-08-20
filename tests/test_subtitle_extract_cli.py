@@ -82,6 +82,22 @@ def test_write_combined_csv(tmp_path):
     assert data[2] == ["b.MKV", "00:01:05", "世界"]
 
 
+def test_progress_gate_is_monotonic():
+    """ProgressGate：百分比只进不退，允许同百分比切到更靠后阶段，丢弃重复。"""
+    out: list = []
+    gate = m.ProgressGate(lambda msg, pct: out.append((msg, pct)))
+    gate("解码 1", 3)
+    gate("解码 2", 58)
+    gate("[OCR] 1", 20)      # 20 < 58 → 丢弃
+    gate("[OCR] 2", 58)      # 同 pct 但 phase 1 > 0 → 允许
+    gate("[OCR] 3", 58)      # 同 pct 同 phase → 丢弃
+    gate("[OCR] 4", 86)
+    gate("解码 3", 40)       # 40 < 86 → 丢弃
+    gate("完成", 100)
+    assert out == [("解码 1", 3), ("解码 2", 58), ("[OCR] 2", 58),
+                   ("[OCR] 4", 86), ("完成", 100)]
+
+
 def test_default_output_path():
     assert m.default_output_path(Path("D:/x/abc.mp4")) == Path("D:/x/abc_subtitles.csv")
 

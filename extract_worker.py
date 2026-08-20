@@ -11,7 +11,7 @@ ensure_engine_path()
 
 from video_ocr_engine import FieldExtractor  # noqa: E402
 from subtitle_extract_cli import (  # noqa: E402
-    build_rows, postprocess_rows, write_combined_csv, write_csv,
+    ProgressGate, build_rows, postprocess_rows, write_combined_csv, write_csv,
 )
 
 
@@ -62,7 +62,8 @@ class ExtractWorker(QThread):
                 sample_stride=self.stride,
                 decode_backend=self.decode_backend,
                 ocr_backend=self.ocr_backend,
-                progress_cb=lambda m, p: self.progress.emit(m, p),
+                progress_cb=ProgressGate(
+                    lambda m, p: self.progress.emit(m, p)),
                 cancel_check=self._check_cancel,
             )
             result = ex.extract()
@@ -136,6 +137,14 @@ class BatchExtractWorker(QThread):
                 (i - 1) / total * 100 if total else 0)
             out = self.combined_output or self._output_path(video)
             try:
+                # 引擎进度收敛为单调；并映射到批量总体区间
+                # （第 i 个视频内 0-100 → 总体 [(i-1)/N, i/N]）
+                def _progress(m: str, p: float) -> None:
+                    overall = (i - 1) / total * 100 + p / total if total else p
+                    self.progress.emit(
+                        f"批量处理 {i}/{total}: {video.name} {m}", overall)
+
+                gate = ProgressGate(_progress)
                 ex = FieldExtractor(
                     str(video), self.roi,
                     frame_start=self.start_frame,
@@ -143,8 +152,7 @@ class BatchExtractWorker(QThread):
                     sample_stride=self.stride,
                     decode_backend=self.decode_backend,
                     ocr_backend=self.ocr_backend,
-                    progress_cb=lambda m, p: self.progress.emit(
-                        f"批量处理 {i}/{total}: {video.name} {m}", p),
+                    progress_cb=gate,
                     cancel_check=self._check_cancel,
                 )
                 result = ex.extract()

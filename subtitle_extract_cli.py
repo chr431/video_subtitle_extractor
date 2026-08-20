@@ -17,6 +17,7 @@ import argparse
 import csv
 import io
 import sys
+import threading
 from pathlib import Path
 
 # ── 引擎子模块路径引导（必须在 import video_ocr_engine 之前）──
@@ -41,6 +42,45 @@ def discover_videos(folder: Path) -> list[Path]:
     return sorted(
         p for p in folder.iterdir()
         if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS)
+
+
+class ProgressGate:
+    """把并行阶段（解码∥OCR）的进度回调收敛成单调、不回退的进度。
+
+    移植自 RaceVideoToLog/segment_flow.py。decode 与 OCR 真正并行：OCR
+    可能已报到 58-86，而解码线程还在报 3-58。若直接透传，进度条会来回跳。
+    本类只允许：
+      - 百分比严格前进；或
+      - 进入更靠后的阶段（decode→OCR）时即使百分比相同也切换。
+    同一阶段内百分比相同的重复消息会被丢弃。
+    """
+
+    def __init__(self, emit) -> None:
+        self._emit = emit
+        self._lock = threading.Lock()
+        self._last_pct = -1.0
+        self._last_phase = -1
+
+    @staticmethod
+    def _phase(msg: str, pct: float) -> int:
+        # 按消息内容判断阶段，避免 58.0 这种边界值被 pct 误判：
+        # 解码最后一条也是 58.0，而 OCR 第一条也是 58.0。
+        if msg == "检测纠正..." or msg == "完成":
+            return 2
+        if msg.startswith("[OCR]"):
+            return 1
+        return 0
+
+    def __call__(self, msg: str, pct: float) -> None:
+        phase = self._phase(msg, pct)
+        with self._lock:
+            if pct < self._last_pct:
+                return
+            if pct == self._last_pct and phase <= self._last_phase:
+                return
+            self._last_pct = pct
+            self._last_phase = phase
+        self._emit(msg, pct)
 
 
 def _force_utf8_stdio() -> None:
@@ -207,14 +247,14 @@ def main(argv: list[str] | None = None) -> int:
 
     out = Path(args.output) if args.output else default_output_path(video)
 
-    # 后端：decode=auto（GPU 优先回退 CPU）、OCR=cpu（ONNX）；--decode-backend /
-    # --ocr-backend 可选覆盖（tensorrt 需本机 TRT，自动回退 ONNX）
+    # 后端：decode=auto（GPU 优先回退 CPU）、OCR=auto（有 TRT 用 TRT，无则回退 ONNX）
+    # 进度用 ProgressGate 收敛成单调不回退（解码∥OCR 并行会导致回跳）
     ex = FieldExtractor(
         str(video), tuple(args.roi),
         frame_start=args.start_frame, frame_end=end,
         sample_stride=args.sample_stride,
         decode_backend=args.decode_backend, ocr_backend=args.ocr_backend,
-        progress_cb=_progress,
+        progress_cb=ProgressGate(_progress),
     )
     print(f"解码+分段+OCR: {video}  roi={args.roi}  frames=[{args.start_frame},{end if end is not None else 'end'}]  sample_stride={args.sample_stride}  decode={args.decode_backend}  ocr={args.ocr_backend}",
           file=sys.stderr)
