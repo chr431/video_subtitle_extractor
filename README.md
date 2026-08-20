@@ -102,6 +102,12 @@ GUI 框架对齐 RaceVideoToLog：**两个页签（单视频 / 批量）+ 底部
   `--ocr-backend tensorrt`）。引擎缓存构建在 `third_party/video_ocr_engine/ocr_engines/`
   （子模块已忽略，不入库）。
 
+### FFmpeg/decord 日志
+
+部分 MKV 片源会让 FFmpeg Matroska demuxer 输出大量“Element ... exceeds containing
+master element”的良性日志（容器不规范，但可跳过继续解码，不影响 CSV）。默认已静音；
+如需查看请设置环境变量 `RVTOL_FFMPEG_LOG_LEVEL=error|warning|info|verbose`。
+
 ### 参数（CLI）
 
 | 参数 | 默认 | 说明 |

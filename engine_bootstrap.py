@@ -10,10 +10,49 @@
 """
 from __future__ import annotations
 
+import ctypes
+import os
 import sys
 from pathlib import Path
 
 _ENGINE_DIRNAME = "video_ocr_engine"
+_AV_LOG_QUIET = -8
+_AV_LOG_ERROR = 16
+_AV_LOG_WARNING = 24
+_FFMPEG_LEVELS = {
+    "quiet": _AV_LOG_QUIET,
+    "error": _AV_LOG_ERROR,
+    "warning": _AV_LOG_WARNING,
+    "info": 32,
+    "verbose": 40,
+}
+
+
+def _silence_ffmpeg() -> bool:
+    """设置 FFmpeg/decord 全局日志级别，压制 MKV 容器不规范的良性噪音。
+
+    部分 MKV（如部分压制/损坏片源）会让 FFmpeg Matroska demuxer 输出大量
+    "Element ... exceeds containing master element" 日志，但 FFmpeg 能跳过
+    并继续解码，不影响输出。默认 QUIET 静音；用环境变量 RVTOL_FFMPEG_LOG_LEVEL
+    覆盖（quiet/error/warning/info/verbose）。
+    """
+    try:
+        import importlib.util
+        level = _FFMPEG_LEVELS.get(
+            os.environ.get("RVTOL_FFMPEG_LOG_LEVEL", "quiet").lower(),
+            _AV_LOG_QUIET)
+        spec = importlib.util.find_spec("decord")
+        if spec is None or not spec.origin:
+            return False
+        avutil = Path(spec.origin).parent / "avutil-60.dll"
+        if not avutil.is_file():
+            return False
+        lib = ctypes.CDLL(str(avutil))
+        lib.av_log_set_level.argtypes = [ctypes.c_int]
+        lib.av_log_set_level(level)
+        return True
+    except Exception:
+        return False
 
 
 def engine_path() -> Path:
@@ -35,6 +74,8 @@ def ensure_engine_path() -> Path:
     s = str(p)
     if s not in sys.path:
         sys.path.insert(0, s)
+    # 统一静音 FFmpeg demuxer 噪音（不影响解码/输出；可用 env 恢复）
+    _silence_ffmpeg()
     return p
 
 
