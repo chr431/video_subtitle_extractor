@@ -38,7 +38,8 @@ def test_gui_constructs_smoke(app):
         assert w.ocr_backend_combo.count() == 3
         assert not hasattr(w, "output_edit")          # 输出改为保存对话框，不再有输出框
         assert not hasattr(w, "_settings_tab")        # 设置 tab 已删除
-        assert not hasattr(w, "_tab_pivot")           # 单页布局，无 Pivot 导航
+        assert hasattr(w, "_tab_pivot")               # 两个 tab：单视频 / 批量
+        assert hasattr(w, "_single_header") and hasattr(w, "_batch_header")
         assert hasattr(w, "_export_btn") and hasattr(w, "_progress_bar")
         assert hasattr(w, "_batch_btn")                # 批量导入按钮
         assert hasattr(w, "_batch_start_btn")          # 开始批量处理按钮

@@ -17,10 +17,10 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QImage, QKeySequence, QPalette, QShortcut
 from PySide6.QtWidgets import (
     QFileDialog, QGridLayout, QHBoxLayout, QMainWindow, QMessageBox,
-    QVBoxLayout, QWidget,
+    QStackedWidget, QVBoxLayout, QWidget,
 )
 from qfluentwidgets import (
-    BodyLabel, CaptionLabel, CompactSpinBox, PrimaryPushButton,
+    BodyLabel, CaptionLabel, CompactSpinBox, Pivot, PrimaryPushButton,
     ProgressBar, PushButton, Slider, StrongBodyLabel,
     isDarkTheme, qconfig, setTheme, Theme,
 )
@@ -95,10 +95,13 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         root.setContentsMargins(12, 8, 12, 6)
         root.setSpacing(0)
 
-        # ── 顶栏：主题按钮（主题默认跟随系统，可手动切换）──
+        # ── 顶栏：Pivot 导航（单视频 / 批量）+ 主题按钮 ──
         top_bar = QWidget()
         tbl = QHBoxLayout(top_bar)
         tbl.setContentsMargins(0, 0, 0, 4)
+        self._tab_pivot = Pivot(self)
+        self._tab_pivot.setFixedWidth(180)
+        tbl.addWidget(self._tab_pivot)
         tbl.addStretch()
         self._theme_btn = PushButton("☀" if not isDarkTheme() else "☾")
         self._theme_btn.setFixedSize(36, 28)
@@ -107,47 +110,78 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         tbl.addWidget(self._theme_btn)
         root.addWidget(top_bar)
 
-        # ── 主页（所有功能都在这里）──
-        self._extract_tab = QWidget()
-        root.addWidget(self._extract_tab, 1)
-        self._build_extract_tab()
+        # ── 页签操作栏：单视频 / 批量 ──
+        self._header_stack = QStackedWidget()
+        root.addWidget(self._header_stack)
 
-        # ── 底部状态栏 ──
+        self._single_header = QWidget()
+        self._header_stack.addWidget(self._single_header)
+        self._build_single_header()
+
+        self._batch_header = QWidget()
+        self._header_stack.addWidget(self._batch_header)
+        self._build_batch_header()
+
+        self._tab_pivot.addItem('single', '单视频')
+        self._tab_pivot.addItem('batch', '批量')
+        self._tab_pivot.setCurrentItem('single')
+        self._tab_pivot.currentItemChanged.connect(self._on_pivot)
+
+        # ── 共享主体：视频信息 + 左参数面板 + 右预览 ──
+        self._body = QWidget()
+        root.addWidget(self._body, 1)
+        self._build_body()
+
+        # ── 底部状态栏（含取消）──
         self._footer = QWidget()
         fl = QVBoxLayout(self._footer)
         fl.setContentsMargins(0, 6, 0, 0)
+        row = QHBoxLayout()
         self._status_label = BodyLabel("请导入视频并设置识别范围。")
+        row.addWidget(self._status_label, 1)
+        self._cancel_btn = PushButton("取消")
+        self._cancel_btn.setEnabled(False)
+        row.addWidget(self._cancel_btn)
+        fl.addLayout(row)
         self._progress_bar = ProgressBar()
         self._progress_bar.setRange(0, 100)
         self._progress_bar.setValue(0)
         self._progress_bar.setTextVisible(True)
-        fl.addWidget(self._status_label)
         fl.addWidget(self._progress_bar)
         root.addWidget(self._footer)
 
-    def _build_extract_tab(self) -> None:
-        layout = QVBoxLayout(self._extract_tab)
-        layout.setContentsMargins(0, 6, 0, 0)
-        layout.setSpacing(8)
-
-        # ── 顶栏 ──
-        hdr = QHBoxLayout()
+    def _build_single_header(self) -> None:
+        """单视频页签操作栏：导入视频 / 导出字幕 CSV。"""
+        hdr = QHBoxLayout(self._single_header)
+        hdr.setContentsMargins(0, 6, 0, 0)
+        hdr.setSpacing(8)
         self._import_video_btn = PushButton("导入视频")
         hdr.addWidget(self._import_video_btn)
-        self._batch_btn = PushButton("批量导入…")
-        hdr.addWidget(self._batch_btn)
-        self._batch_start_btn = PrimaryPushButton("开始批量处理")
-        self._batch_start_btn.setEnabled(False)
-        hdr.addWidget(self._batch_start_btn)
         self._file_label = BodyLabel("未导入视频")
         self._file_label.setWordWrap(True)
         hdr.addWidget(self._file_label, 1)
         self._export_btn = PrimaryPushButton("导出字幕 CSV")
         hdr.addWidget(self._export_btn)
-        self._cancel_btn = PushButton("取消")
-        self._cancel_btn.setEnabled(False)
-        hdr.addWidget(self._cancel_btn)
-        layout.addLayout(hdr)
+
+    def _build_batch_header(self) -> None:
+        """批量页签操作栏：批量导入 / 开始批量处理。"""
+        hdr = QHBoxLayout(self._batch_header)
+        hdr.setContentsMargins(0, 6, 0, 0)
+        hdr.setSpacing(8)
+        self._batch_btn = PushButton("批量导入…")
+        hdr.addWidget(self._batch_btn)
+        self._batch_start_btn = PrimaryPushButton("开始批量处理")
+        self._batch_start_btn.setEnabled(False)
+        hdr.addWidget(self._batch_start_btn)
+        self._batch_file_label = BodyLabel("未导入批量文件夹")
+        self._batch_file_label.setWordWrap(True)
+        hdr.addWidget(self._batch_file_label, 1)
+
+    def _build_body(self) -> None:
+        """共享主体：视频信息卡 + 左参数面板 + 右 ROI/预览。"""
+        layout = QVBoxLayout(self._body)
+        layout.setContentsMargins(0, 6, 0, 0)
+        layout.setSpacing(8)
 
         # ── 视频信息 ──
         info = make_static_card()
@@ -342,6 +376,7 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         """清除当前批量待处理列表（例如用户改导入单个视频时）。"""
         self._batch_videos = []
         self._batch_start_btn.setEnabled(False)
+        self._batch_file_label.setText("未导入批量文件夹")
 
     def _import_video(self) -> None:
         """覆盖：导入单个视频后清空批量待处理状态，避免误触发批量。"""
@@ -375,7 +410,7 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         self._batch_start_btn.setEnabled(True)
         self._status_label.setText(
             f"已选择 {len(videos)} 个视频，请调整 ROI/帧范围/后端后点「开始批量处理」。")
-        self._file_label.setText(
+        self._batch_file_label.setText(
             f"批量：{len(videos)} 个视频（{Path(folder)}）")
 
     def _batch_start_processing(self) -> None:
@@ -499,6 +534,10 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         else:
             setTheme(Theme.DARK)
         ThemeManager.refresh()
+
+    def _on_pivot(self, key: str) -> None:
+        """Pivot 页签切换：单视频 / 批量 对应不同操作栏。"""
+        self._header_stack.setCurrentIndex(0 if key == "single" else 1)
 
     def closeEvent(self, event) -> None:
         try:
