@@ -1,8 +1,9 @@
 """GUI 左侧参数面板 + 设置页（对标 RaceVideoToLog 的 gui_settings 结构）。
 
-- build_settings_panel(parent)：左侧参数卡片（识别范围帧 / 采样步长 / 输出 /
+- build_settings_panel(parent)：左侧参数卡片（识别范围帧 / 采样步长 / 导出提示 /
   后处理），返回 widget dict。主窗口把关键控件赋为自身属性
-  （frame_start/frame_end/sample_stride/output_edit 等），兼容 gui_video 的既有引用。
+  （frame_start/frame_end/sample_stride/postprocess_check 等）。
+  输出命名在导出时通过保存对话框完成（对标参考）。
 - build_settings_page(parent)：设置页（主题 / 默认输出目录 / 导出后处理），
   改动即时写回 QConfig 持久化。
 """
@@ -81,16 +82,29 @@ def build_settings_panel(parent) -> dict:
     gl.addWidget(CaptionLabel("采样步长"), 4, 0)
     gl.addWidget(stride, 4, 1)
     gl.addWidget(CaptionLabel("(1=逐帧；>1 分频)"), 4, 2, 1, 2)
-
-    out = LineEdit()
-    out.setPlaceholderText("<视频名>_subtitles.csv")
-    widgets["output_edit"] = out
-    browse = PushButton("浏览…")
-    widgets["_browse_btn"] = browse
-    gl.addWidget(CaptionLabel("输出 CSV"), 5, 0)
-    gl.addWidget(out, 5, 1, 1, 2)
-    gl.addWidget(browse, 5, 3)
+    gl.addWidget(CaptionLabel("导出 CSV：点击「导出字幕 CSV」后在弹出窗口选择保存位置"), 5, 0, 1, 4)
     gl.setColumnStretch(1, 1)
+
+    # ── 性能/后端 卡（对标参考：解码后端 auto/CPU/NVDEC + OCR 后端 auto/CPU/TensorRT）──
+    perf_card = make_static_card(parent)
+    plg = QGridLayout(perf_card)
+    plg.addWidget(StrongBodyLabel("性能"), 0, 0, 1, 4)
+    plg.addWidget(CaptionLabel("解码后端"), 1, 0)
+    backend_combo = ComboBox()
+    backend_combo.addItems(["自动", "CPU", "NVDEC"])
+    backend_combo.setCurrentIndex(0)          # auto
+    backend_combo.setFixedWidth(120)
+    widgets["backend_combo"] = backend_combo
+    plg.addWidget(backend_combo, 1, 1)
+    plg.addWidget(CaptionLabel("OCR 后端"), 1, 2)
+    ocr_backend_combo = ComboBox()
+    ocr_backend_combo.addItems(["自动", "CPU", "TensorRT"])
+    ocr_backend_combo.setCurrentIndex(1)      # 默认 CPU
+    ocr_backend_combo.setFixedWidth(120)
+    widgets["ocr_backend_combo"] = ocr_backend_combo
+    plg.addWidget(ocr_backend_combo, 1, 3)
+    plg.addWidget(CaptionLabel("TensorRT 需本机 CUDA+TensorRT（engine 从 PATH 定位）；"
+                               "OCR 无 TRT 时自动回退 ONNX。"), 2, 0, 1, 4)
 
     # ── 后处理卡 ──
     pp_card = make_static_card(parent)
@@ -108,6 +122,7 @@ def build_settings_panel(parent) -> dict:
     ll.setContentsMargins(0, 0, 0, 0)
     ll.setSpacing(6)
     ll.addWidget(card)
+    ll.addWidget(perf_card)
     ll.addWidget(pp_card)
     ll.addStretch()
     return widgets

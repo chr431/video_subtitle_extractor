@@ -47,7 +47,7 @@ hiddenimports = [
     # 本项目模块（显式列出更稳）
     'gui', 'gui_video', 'gui_settings', 'app_config', 'theme_manager',
     'extract_worker', 'preview_widget', 'widget_utils',
-    'subtitle_extract_cli', 'engine_bootstrap',
+    'subtitle_extract_cli', 'tensorrt', 'engine_bootstrap',
     # 引擎顶层模块与包（pathex 提供；引擎源码树亦随包）
     'engine_config', 'gpu_setup', 'hybrid_decode', 'ocr_native', 'ocr_trt',
     'segmentation', 'video_utils', 'video_ocr_engine',
@@ -68,6 +68,23 @@ for _qt_mod in ['PySide6.QtWidgets', 'PySide6.QtCore', 'PySide6.QtGui',
                 'PySide6.QtXml', 'PySide6.QtSvg']:
     _qt = collect_all(_qt_mod)
     datas += _qt[0]; binaries += _qt[1]; hiddenimports += _qt[2]
+
+# ── TRT（可选，thin binding）—— 装了才收集；没装则跳过，引擎运行时回退 ONNX ──
+# 注意：构建期不把系统 CUDA / TensorRT DLL 打包（本项目从 PATH 动态定位）。
+try:
+    _trt = collect_all('tensorrt_bindings')
+    datas += _trt[0]; binaries += _trt[1]; hiddenimports += _trt[2]
+except Exception:
+    pass
+try:
+    import importlib.util
+    if importlib.util.find_spec('cuda.bindings'):
+        hiddenimports += [
+            'cuda', 'cuda.bindings', 'cuda.bindings.runtime',
+            'cuda.bindings.driver', 'cuda.bindings.utils',
+        ]
+except Exception:
+    pass
 
 # ── 引擎源码树 + OCR 模型完整随包（排除 .git/测试/缓存）──
 # 引擎根随包能让 engine_bootstrap.ensure_engine_path() 在 frozen 下照常工作，

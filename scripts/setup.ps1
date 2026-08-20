@@ -10,25 +10,30 @@
     - decord 解码 fork（chr431/decord v0.7.12，视频解码必需；PyPI 版不支持）：
         ① 本地 `_decord_build\`（发布产物，布局同 RaceVideoToLog）优先；
         ② 否则下载 v0.7.12 发布包解压为 `_decord_build\`，再装入 site-packages\decord。
+    - TRT（可选，默认装 thin binding）：只装 cuda-python + tensorrt 纯 Python 绑定层
+      （[trt] extra，~1MB），不装 tensorrt 元包；实际推理 DLL 由引擎从 PATH 扫描
+      本地 CUDA/TensorRT 加载；无则 OCR 自动回退 ONNX（CPU）。-SkipTrt 可跳过。
     - 精简 Qt（PySide6-Addons 是可废弃的 ~400MB；且 Addons 的 RECORD 误含
       Essentials 的 Qt6Core.dll，同 RaceVideoToLog）：卸载 Addons 后
       `--force-reinstall --no-deps PySide6-Essentials` 恢复，再 import 自检。
-    - 只装本项目/引擎需要的依赖（onnxruntime/numpy/psutil/PySide6/qfluentwidgets/
-      decord），不装 CUDA/TensorRT 等 GPU 加速依赖（OCR 用 CPU 后端）。
+    - 只装本项目/引擎真正需要的依赖（onnxruntime/numpy/psutil/PySide6/qfluentwidgets/
+      decord + 可选 TRT thin binding）。
 
     一键运行（右键「使用 PowerShell 运行」，或执行）：
         powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
 
 .EXAMPLE
-    .\scripts\setup.ps1              # 标准开发环境（含 dev + decord）
+    .\scripts\setup.ps1              # 标准开发环境（含 dev + decord + TRT thin binding）
     .\scripts\setup.ps1 -NoDev       # 只装运行时依赖（跳过 dev）
     .\scripts\setup.ps1 -SkipDecord  # 不安装 decord fork（视频解码不可用）
+    .\scripts\setup.ps1 -SkipTrt     # 不安装 TRT thin binding（OCR 仅 CPU/ONNX）
     .\scripts\setup.ps1 -KeepAddons  # 保留 PySide6-Addons（不精简 Qt）
 #>
 [CmdletBinding()]
 param(
     [switch]$NoDev,       # 跳过 dev 依赖（pytest 等）
     [switch]$SkipDecord,  # 不安装 decord 解码 fork
+    [switch]$SkipTrt,     # 不安装 TRT thin binding（cuda-python + tensorrt bindings）
     [switch]$KeepAddons   # 保留 PySide6-Addons（不精简 Qt）
 )
 
@@ -162,7 +167,18 @@ if (-not $SkipDecord) {
     Write-Host "    ✓ decord v$decordVer 就绪（site-packages\decord）。"
 }
 
-# ── 7. 精简 Qt（参考 RaceVideoToLog：卸 Addons + 强制重装 Essentials 修复 RECORD）──
+# ── 7. TRT thin binding（可选，默认装；无本机 TensorRT 不影响，OCR 自动回退 ONNX）──
+if (-not $SkipTrt) {
+    Write-Step "安装 TRT thin binding（cuda-python + tensorrt bindings，[trt] extra）..."
+    & $venvPy -m pip install -e ".[trt]"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "    ⚠ TRT thin binding 安装失败某依赖（本机若无 TensorRT/CUDA13 属正常）——OCR 将继续用 ONNX(CPU)。"
+    } else {
+        Write-Host "    ✓ TRT thin binding 就绪；实际推理 DLL 由引擎从 PATH 扫描本地 CUDA/TensorRT，暂无则自动回退 ONNX。"
+    }
+}
+
+# ── 8. 精简 Qt（参考 RaceVideoToLog：卸 Addons + 强制重装 Essentials 修复 RECORD）──
 if (-not $KeepAddons) {
     Write-Step "精简 Qt：移除 PySide6-Addons（~400MB）并强制重装 Essentials ..."
     & $venvPy -m pip uninstall -y PySide6-Addons *> $null

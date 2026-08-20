@@ -197,7 +197,7 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         layout.addLayout(main_w, 1)
 
     def _build_right_panel(self, rl: QVBoxLayout) -> None:
-        # ── ROI ──
+        # ── 识别范围（像素）—— 对标参考：紧凑两行（标签行 + spinbox 行）──
         roi_card = make_static_card()
         rgl = QGridLayout(roi_card)
         rgl.addWidget(StrongBodyLabel("识别范围（像素）"), 0, 0, 1, 4)
@@ -207,21 +207,21 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         self.roi_y2 = CompactSpinBox()
         for s in (self.roi_x1, self.roi_y1, self.roi_x2, self.roi_y2):
             s.setRange(0, 9999)
-            s.setFixedWidth(90)
+            s.setFixedWidth(80)
+            s.valueChanged.connect(lambda v, spin=s: self._on_roi_spin(spin))
+            disable_spin_flyout(s)
         self.roi_x1.setValue(0)
         self.roi_y1.setValue(0)
         self.roi_x2.setValue(100)
         self.roi_y2.setValue(40)
-        for s in (self.roi_x1, self.roi_y1, self.roi_x2, self.roi_y2):
-            s.valueChanged.connect(lambda v, spin=s: self._on_roi_spin(spin))
-            disable_spin_flyout(s)
+        # 标签一行，数值一行（同参考布局：左上一列/右上一列/左下一列/右下一列）
         rgl.addWidget(CaptionLabel("左上 X"), 1, 0)
-        rgl.addWidget(self.roi_x1, 1, 1)
-        rgl.addWidget(CaptionLabel("左上 Y"), 1, 2)
-        rgl.addWidget(self.roi_y1, 1, 3)
-        rgl.addWidget(CaptionLabel("右下 X"), 2, 0)
-        rgl.addWidget(self.roi_x2, 2, 1)
-        rgl.addWidget(CaptionLabel("右下 Y"), 2, 2)
+        rgl.addWidget(CaptionLabel("左上 Y"), 1, 1)
+        rgl.addWidget(CaptionLabel("右下 X"), 1, 2)
+        rgl.addWidget(CaptionLabel("右下 Y"), 1, 3)
+        rgl.addWidget(self.roi_x1, 2, 0)
+        rgl.addWidget(self.roi_y1, 2, 1)
+        rgl.addWidget(self.roi_x2, 2, 2)
         rgl.addWidget(self.roi_y2, 2, 3)
         rgl.addWidget(CaptionLabel("← 在预览画面上拖拽选择识别范围"), 3, 0, 1, 4)
         rl.addWidget(roi_card)
@@ -255,24 +255,12 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
             lambda: set_value_silent(self.frame_start, self._slider.value()))
         self._set_end_btn.clicked.connect(
             lambda: set_value_silent(self.frame_end, self._slider.value()))
-        self._browse_btn.clicked.connect(self._pick_output)
 
     def _add_shortcuts(self) -> None:
         QShortcut(QKeySequence(Qt.Key.Key_Left), self, lambda: self._step(-1))
         QShortcut(QKeySequence(Qt.Key.Key_Right), self, lambda: self._step(1))
         QShortcut(QKeySequence(Qt.Key.Key_Up), self, lambda: self._step(10))
         QShortcut(QKeySequence(Qt.Key.Key_Down), self, lambda: self._step(-10))
-
-    def _pick_output(self) -> None:
-        initial = str(app_config.outputDir.value) if app_config.outputDir.value else ""
-        path, _ = QFileDialog.getSaveFileName(
-            self, "导出字幕 CSV",
-            str(Path(initial) / "subtitles.csv") if initial
-            else (str(self.video_path.with_name("subtitles.csv"))
-                  if self.video_path else "subtitles.csv"),
-            "CSV 文件 (*.csv);;所有文件 (*.*)")
-        if path:
-            self.output_edit.setText(path)
 
     # ═══════════════════ 导出 ═══════════════════
 
@@ -290,9 +278,19 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         if self.frame_end.value() <= self.frame_start.value():
             QMessageBox.warning(self, "提示", "帧范围无效：结束帧必须大于开始帧。")
             return
-        out_text = self.output_edit.text().strip()
+
+        # ── 弹出保存对话框选择导出位置（对标参考：导出命名在弹出窗口完成）──
+        initial = ""
+        out_dir = str(app_config.outputDir.value)
+        if out_dir:
+            initial = str(Path(out_dir) / f"{self.video_path.stem}_subtitles.csv")
+        else:
+            initial = str(self.video_path.with_name(
+                f"{self.video_path.stem}_subtitles.csv"))
+        out_text, _ = QFileDialog.getSaveFileName(
+            self, "保存字幕 CSV", initial, "CSV 文件 (*.csv);;所有文件 (*.*)")
         if not out_text:
-            out_text = str(self.video_path.with_name("subtitles.csv"))
+            return
         out = Path(out_text)
         try:
             out.parent.mkdir(parents=True, exist_ok=True)
@@ -305,11 +303,15 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         self._progress_bar.setValue(0)
         self._status_label.setText(f"正在识别…（解码 + 分段 + OCR"
                                    f"{' + 后处理' if app_config.postProcess.value else ''}）")
+        decode_backend = ("auto", "cpu", "nvdec")[self.backend_combo.currentIndex()]
+        ocr_backend = ("auto", "cpu", "tensorrt")[self.ocr_backend_combo.currentIndex()]
         worker = ExtractWorker(
             self.video_path, (x1, y1, x2, y2),
             self.frame_start.value(), self.frame_end.value(),
             self.sample_stride.value(), out,
-            postprocess=bool(app_config.postProcess.value))
+            postprocess=bool(app_config.postProcess.value),
+            decode_backend=decode_backend,
+            ocr_backend=ocr_backend)
         worker.progress.connect(self._on_export_progress)
         worker.succeeded.connect(self._on_export_done)
         worker.failed.connect(self._on_export_failed)

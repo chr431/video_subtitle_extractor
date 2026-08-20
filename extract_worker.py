@@ -34,6 +34,7 @@ class ExtractWorker(QThread):
 
     def __init__(self, video: Path, roi: tuple, start: int, end: int,
                  stride: int, out: Path, postprocess: bool = True,
+                 decode_backend: str = "auto", ocr_backend: str = "cpu",
                  parent=None) -> None:
         super().__init__(parent)
         # 注意：不能用 self.start/self.end 命名，会遮蔽 QThread.start() 方法
@@ -44,6 +45,8 @@ class ExtractWorker(QThread):
         self.stride = stride
         self.out = out
         self.postprocess = postprocess
+        self.decode_backend = decode_backend
+        self.ocr_backend = ocr_backend
         self._cancelled = False
 
     def cancel(self) -> None:
@@ -57,7 +60,8 @@ class ExtractWorker(QThread):
                 frame_start=self.start_frame,
                 frame_end=None if (self.end_frame is None or self.end_frame <= 0) else self.end_frame,
                 sample_stride=self.stride,
-                decode_backend="auto", ocr_backend="cpu",
+                decode_backend=self.decode_backend,
+                ocr_backend=self.ocr_backend,
                 progress_cb=lambda m, p: self.progress.emit(m, p),
                 cancel_check=self._check_cancel,
             )

@@ -89,8 +89,7 @@ class VideoLoadMixin:
             s.setRange(0, fc - 1)
         self.frame_start.setValue(0)
         self.frame_end.setValue(fc - 1)
-        if self.output_edit.text() in ("", "<视频名>_subtitles.csv"):
-            self.output_edit.setText(str(path.with_name(path.stem + "_subtitles.csv")))
+        # 输出命名在导出时通过保存对话框完成（对标参考），无需在此预填
 
     def _on_preview_roi(self, x1: int, y1: int, x2: int, y2: int) -> None:
         """预览拖拽 ROI → 同步 spinbox（静默赋值，不触发联动校验）。"""
@@ -139,6 +138,11 @@ class VideoLoadMixin:
             set_value_silent(spin, self.roi_y2.value() - 1)
         elif spin is self.roi_y2 and self.roi_y2.value() < self.roi_y1.value() + 1:
             set_value_silent(spin, self.roi_y1.value() + 1)
-        self._preview_widget.set_roi(
+        # 预览控件在 ROI 面板之后构建；构造期 spinbox 的 valueChanged 触发时
+        # 可能还未创建，此时只需同步数值、跳过预览更新。
+        pv = getattr(self, "_preview_widget", None)
+        if pv is None:
+            return
+        pv.set_roi(
             self.roi_x1.value(), self.roi_y1.value(),
             self.roi_x2.value(), self.roi_y2.value())

@@ -77,11 +77,26 @@ GUI 框架对齐 RaceVideoToLog：**Pivot 左侧导航（提取 / 设置）+ 底
 应用级设置用 **QConfig 持久化**到 `config/app_config.json`。
 
 - **提取页**：**导入视频** → 载入元信息与首帧（预览显示）
-  - **选 ROI**：预览画面上**拖拽框选**字幕条区域，或用「识别范围（像素）」spinbox 微调
+  - **选 ROI**：预览画面上**拖拽框选**字幕条区域，或用「识别范围（像素）」单行
+    （左上/右上/左下/右下 四格）微调
   - **帧范围 / 采样步长**：默认全片；可用当前预览帧设为起点/终点；`1`=逐帧、`>1`=分频
-  - **输出 CSV**：路径 + 浏览；后台线程跑引擎（进度条实时反馈），可随时「取消」
+  - **导出命名**：点「导出字幕 CSV」**弹出保存对话框**选择输出位置与文件名
+    （默认 `<视频名>_subtitles.csv`，可选默认目录见设置页）
+  - **后端**：左面板可选择 **解码后端**（自动/CPU/NVDEC）与 **OCR 后端**
+    （自动/CPU/TensorRT）；后台线程跑引擎（进度条实时反馈），可随时「取消」
   - **导出后处理**（默认开启）：剔除重复行与纯数字行（可在「设置」页关闭）
 - **设置页**：主题模式 / 默认输出目录 / 导出后处理开关（改动即时保存）
+
+### TRT（可选，thin binding）
+
+- 只装 `cuda-python` + `tensorrt` 纯 Python 绑定层（`[trt]` extra，~几 MB），
+  **不装**体积巨大的 tensorrt 元包（~2.2GB）。`scripts/setup.ps1` 默认安装；
+  `-SkipTrt` 跳过 / `pip install -e ".[trt]"` 手动装。
+- 运行时由引擎 `gpu_setup` 从 **PATH 扫描本地 CUDA/TensorRT** 定位实际推理 DLL
+  （先 add_dll_directory 注册）；**无本机 TensorRT 时 OCR 自动回退 ONNX（CPU）**。
+- 选 OCR 后端 = TensorRT / 自动 即用 TRT（GUI `ocr_backend_combo` 或 CLI
+  `--ocr-backend tensorrt`）。引擎缓存构建在 `third_party/video_ocr_engine/ocr_engines/`
+  （子模块已忽略，不入库）。
 
 ### 参数（CLI）
 
@@ -92,11 +107,10 @@ GUI 框架对齐 RaceVideoToLog：**Pivot 左侧导航（提取 / 设置）+ 底
 | `--start-frame N` | 0 | 开始帧号 |
 | `--end-frame N` | 到末尾 | 结束帧号（0 视为末尾） |
 | `--sample-stride N` | 1 | 分频采样步长：只处理每个第 N 帧（字幕等慢更新内容） |
+| `--decode-backend` | auto | 解码后端：auto / cpu / nvdec |
+| `--ocr-backend` | cpu | OCR 后端：cpu（ONNX）/ auto / tensorrt（无 TRT 自动回退） |
 | `--no-postprocess` | 关 | 关闭后处理（默认开启：剔除重复行与纯数字行） |
 | `-o, --output` | `<视频名>_subtitles.csv` | 输出 CSV 路径 |
-
-解码/OCR 后端用演示默认：`decode=auto`（GPU 优先回退 CPU）、`OCR=cpu`（ONNX，
-免 TRT 构建），不在此暴露引擎细节。
 
 ### CSV 输出
 

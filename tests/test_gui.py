@@ -31,7 +31,12 @@ def test_gui_constructs_smoke(app):
         assert hasattr(w, "roi_x1") and hasattr(w, "roi_y2")
         assert hasattr(w, "frame_start") and hasattr(w, "frame_end")
         assert hasattr(w, "sample_stride")
-        assert hasattr(w, "output_edit")
+        assert hasattr(w, "postprocess_check")        # 左参数面板后处理开关
+        assert hasattr(w, "backend_combo")            # 解码后端（auto/CPU/NVDEC）
+        assert hasattr(w, "ocr_backend_combo")        # OCR 后端（auto/CPU/TensorRT）
+        assert w.backend_combo.count() == 3
+        assert w.ocr_backend_combo.count() == 3
+        assert not hasattr(w, "output_edit")          # 输出改为保存对话框，不再有输出框
         assert hasattr(w, "_export_btn") and hasattr(w, "_progress_bar")
     finally:
         w.close()

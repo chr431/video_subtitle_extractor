@@ -19,6 +19,14 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 build = ["pyinstaller>=6"]  # 一键构建 frozen exe（scripts/build_exe.ps1）
+# TRT（可选）：thin binding 只装 cuda-python + tensorrt 纯 Python 绑定层，
+# 实际推理 DLL 由引擎从本地 PATH 中的 CUDA/TensorRT 加载；无 TRT 自动回退 ONNX。
+# 用 scripts/setup.ps1（默认装）或 `pip install -e ".[trt]"` 安装。
+trt = [
+    "cuda-python",
+    # thin bindings：不装 tensorrt 元包（~2.2GB）。CUDA 13 绑定，见 tensorrt.py shim。
+    "tensorrt_cu13_bindings>=11,<12",
+]
 
 [project.scripts]
 subtitle-extract = "subtitle_extract_cli:main"
@@ -34,6 +42,7 @@ py-modules = [
     "gui_video",
     "preview_widget",
     "subtitle_extract_cli",
+    "tensorrt",
     "theme_manager",
     "widget_utils",
 ]

@@ -123,6 +123,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--sample-stride", dest="sample_stride", type=int, default=1,
                    help="分频采样步长（默认 1=逐帧；>1 时只处理每个第 N 帧，"
                         "适合字幕等慢更新内容降低解码/处理压力；需 decord ≥0.7.12）")
+    p.add_argument("--decode-backend", dest="decode_backend", default="auto",
+                   choices=["auto", "cpu", "nvdec"],
+                   help="视频解码后端（默认 auto=GPU 优先回退 CPU）")
+    p.add_argument("--ocr-backend", dest="ocr_backend", default="cpu",
+                   choices=["auto", "cpu", "tensorrt"],
+                   help="OCR 后端（默认 cpu=ONNX；auto/tensorrt 需本机 TensorRT，"
+                        "无则自动回退 ONNX）")
     p.add_argument("--no-postprocess", dest="postprocess", action="store_false", default=True,
                    help="关闭后处理（默认开启：剔除重复行与纯数字行）")
     p.add_argument("-o", "--output", default=None,
@@ -158,15 +165,16 @@ def main(argv: list[str] | None = None) -> int:
 
     out = Path(args.output) if args.output else default_output_path(video)
 
-    # 默认后端：decode=auto（GPU 优先，回退 CPU）、OCR=cpu（ONNX，无需 TRT 构建）
+    # 后端：decode=auto（GPU 优先回退 CPU）、OCR=cpu（ONNX）；--decode-backend /
+    # --ocr-backend 可选覆盖（tensorrt 需本机 TRT，自动回退 ONNX）
     ex = FieldExtractor(
         str(video), tuple(args.roi),
         frame_start=args.start_frame, frame_end=end,
         sample_stride=args.sample_stride,
-        decode_backend="auto", ocr_backend="cpu",
+        decode_backend=args.decode_backend, ocr_backend=args.ocr_backend,
         progress_cb=_progress,
     )
-    print(f"解码+分段+OCR: {video}  roi={args.roi}  frames=[{args.start_frame},{end if end is not None else 'end'}]  sample_stride={args.sample_stride}",
+    print(f"解码+分段+OCR: {video}  roi={args.roi}  frames=[{args.start_frame},{end if end is not None else 'end'}]  sample_stride={args.sample_stride}  decode={args.decode_backend}  ocr={args.ocr_backend}",
           file=sys.stderr)
     result = ex.extract()
     rows = build_rows(result)
