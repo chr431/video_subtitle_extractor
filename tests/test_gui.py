@@ -41,3 +41,14 @@ def test_gui_export_worker_imports(app):
     """导出 worker 可导入（引擎路径经 conftest/engine_bootstrap 提供）。"""
     from extract_worker import ExtractWorker
     assert ExtractWorker is not None
+
+
+def test_export_worker_start_not_shadowed():
+    """回归：ExtractWorker.__init__ 不能把 self.start 存成 int（会遮蔽
+    QThread.start()，导致 GUI 导出报 'int' object is not callable）。"""
+    from pathlib import Path
+    from extract_worker import ExtractWorker
+    w = ExtractWorker(Path("x.mp4"), (0, 0, 10, 10), 1, 100, 1,
+                      Path("out.csv"), postprocess=True)
+    assert callable(w.start)                 # 必须是 QThread.start 方法
+    assert w.start_frame == 1 and w.end_frame == 100

@@ -66,15 +66,17 @@ def build_rows(result: ExtractionResult) -> list[tuple[int, str]]:
 
 
 def postprocess_rows(rows: list[tuple[int, str]]) -> list[tuple[int, str]]:
-    """简单后处理：剔除“纯数字行”与“(time_sec, text) 重复行”，保留首次出现。
+    """简单后处理：剔纯数字行 + 合并完全相同（连续相同文本）的结果。
 
     - 纯数字行：text 去掉首尾空白后仅由数字组成（含全角数字，如 OCR 把
-      画面中的小数字误当成字幕提出来）。空文本行也一并丢弃。
-    - 重复行：完全相同的 (time_sec, text) 只保留第一条；不同秒数的相同
-      文本（字幕持续多行）不算重复，保留。
+      画面中的小数字误当成字幕提出来）。空文本/纯空白行也一并丢弃。
+    - 相同结果合并：若某行 text 与前一条已保留行完全相同，则丢弃该行
+      （保留首次出现的时间戳）。这会把同一句字幕在相邻多秒的重复输出
+      合并为一条；若中途插入其他内容后再次出现相同字幕，则视为正常
+      重复，予以保留。
     """
-    seen: set[tuple[int, str]] = set()
     out: list[tuple[int, str]] = []
+    prev: str | None = None
     for time_sec, text in rows:
         if not text:
             continue
@@ -83,11 +85,10 @@ def postprocess_rows(rows: list[tuple[int, str]]) -> list[tuple[int, str]]:
             continue          # 纯空白
         if stripped.isdigit():
             continue          # 纯数字（含全角）
-        key = (time_sec, text)
-        if key in seen:
-            continue
-        seen.add(key)
+        if text == prev:
+            continue          # 与前一条相同 → 合并（保留首次时间戳）
         out.append((time_sec, text))
+        prev = text
     return out
 
 

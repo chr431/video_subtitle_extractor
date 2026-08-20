@@ -36,10 +36,11 @@ class ExtractWorker(QThread):
                  stride: int, out: Path, postprocess: bool = True,
                  parent=None) -> None:
         super().__init__(parent)
+        # 注意：不能用 self.start/self.end 命名，会遮蔽 QThread.start() 方法
         self.video = video
         self.roi = roi
-        self.start = start
-        self.end = end
+        self.start_frame = start
+        self.end_frame = end
         self.stride = stride
         self.out = out
         self.postprocess = postprocess
@@ -53,8 +54,8 @@ class ExtractWorker(QThread):
         try:
             ex = FieldExtractor(
                 str(self.video), self.roi,
-                frame_start=self.start,
-                frame_end=None if (self.end is None or self.end <= 0) else self.end,
+                frame_start=self.start_frame,
+                frame_end=None if (self.end_frame is None or self.end_frame <= 0) else self.end_frame,
                 sample_stride=self.stride,
                 decode_backend="auto", ocr_backend="cpu",
                 progress_cb=lambda m, p: self.progress.emit(m, p),
