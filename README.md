@@ -85,6 +85,8 @@ GUI 框架对齐 RaceVideoToLog：**两个页签（单视频 / 批量）+ 底部
 - **共用**：左面板可选择 **解码后端**（自动/CPU/NVDEC）与 **OCR 后端**
   （自动/CPU/TensorRT）；后台线程跑引擎（进度条实时反馈），可随时「取消」；
   **导出后处理**（默认开启）剔除重复行与纯数字行（左侧面板开关）
+- **默认值对齐参考**：解码后端=自动、OCR 后端=自动、ROI 初始 0、帧范围 0-0（=全片）；
+  导入视频后不自动改写帧范围值（用户已设值保留）
 
 ### TRT（可选，thin binding）
 
@@ -107,24 +109,25 @@ GUI 框架对齐 RaceVideoToLog：**两个页签（单视频 / 批量）+ 底部
 | `--end-frame N` | 到末尾 | 结束帧号（0 视为末尾） |
 | `--sample-stride N` | 1 | 分频采样步长：只处理每个第 N 帧（字幕等慢更新内容） |
 | `--decode-backend` | auto | 解码后端：auto / cpu / nvdec |
-| `--ocr-backend` | cpu | OCR 后端：cpu（ONNX）/ auto / tensorrt（无 TRT 自动回退） |
+| `--ocr-backend` | auto | OCR 后端：auto / cpu / tensorrt（无 TRT 自动回退 ONNX） |
 | `--no-postprocess` | 关 | 关闭后处理（默认开启：剔除重复行与纯数字行） |
 | `-o, --output` | `<视频名>_subtitles.csv` | 输出 CSV 路径 |
 
 ### CSV 输出
 
-`utf-8-sig`，两列（对中文/含逗号文本自动加引号）：
+`utf-8-sig`，两列（对中文/含逗号文本自动加引号）；第一列为 **分:秒（M:SS）**：
 
-| time_sec | text |
+| time_mmss | text |
 |---|---|
-| 12 | 你好，世界 |
-| 15 | 我们继续 |
+| 0:12 | 你好，世界 |
+| 0:15 | 我们继续 |
 
-- `time_sec`：段代表帧（识别帧）在视频中的实际秒数（绝对帧号 ÷ 引擎自测 fps，
-  四舍五入到秒）。`--sample-stride>1` 时最多偏移 `(stride-1)/fps` 秒。
+- `time_mmss`：段代表帧（识别帧）在视频中的实际秒数（绝对帧号 ÷ 引擎自测 fps，
+  四舍五入到秒）转换为 `M:SS`（如 65 秒 → `1:05`）。`--sample-stride>1` 时最多偏移
+  `(stride-1)/fps` 秒。
 - `text`：OCR 原始文本，原样输出（不解析/过滤/规整）；无文本的段跳过。
-- **后处理**（默认开启，`--no-postprocess` 关闭 / 设置页开关）：剔除
-  「纯数字行」（`isdigit`，含全角数字）与「(time_sec, text) 重复行」；
+- **后处理**（默认开启，`--no-postprocess` 关闭 / 左侧面板开关）：剔除
+  「纯数字行」（`isdigit`，含全角数字）与「(time_mmss, text) 重复行」；
   不同秒数的相同文本（字幕持续多行）不算重复，予以保留。
 
 ## 测试

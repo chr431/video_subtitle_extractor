@@ -164,18 +164,18 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         hdr.addWidget(self._export_btn)
 
     def _build_batch_header(self) -> None:
-        """批量页签操作栏：批量导入 / 开始批量处理。"""
+        """批量页签操作栏：批量导入（左）/ 批量文件标签 / 开始批量处理（右，同单视频）。"""
         hdr = QHBoxLayout(self._batch_header)
         hdr.setContentsMargins(0, 6, 0, 0)
         hdr.setSpacing(8)
         self._batch_btn = PushButton("批量导入…")
         hdr.addWidget(self._batch_btn)
-        self._batch_start_btn = PrimaryPushButton("开始批量处理")
-        self._batch_start_btn.setEnabled(False)
-        hdr.addWidget(self._batch_start_btn)
         self._batch_file_label = BodyLabel("未导入批量文件夹")
         self._batch_file_label.setWordWrap(True)
         hdr.addWidget(self._batch_file_label, 1)
+        self._batch_start_btn = PrimaryPushButton("开始批量处理")
+        self._batch_start_btn.setEnabled(False)
+        hdr.addWidget(self._batch_start_btn)
 
     def _build_body(self) -> None:
         """共享主体：视频信息卡 + 左参数面板 + 右 ROI/预览。"""
@@ -230,10 +230,7 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
             s.setFixedWidth(80)
             s.valueChanged.connect(lambda v, spin=s: self._on_roi_spin(spin))
             disable_spin_flyout(s)
-        self.roi_x1.setValue(0)
-        self.roi_y1.setValue(0)
-        self.roi_x2.setValue(100)
-        self.roi_y2.setValue(40)
+        # 默认全 0（同参考：导入后由用户拖拽/填写识别范围）
         # 标签一行，数值一行（同参考布局：左上一列/右上一列/左下一列/右下一列）
         rgl.addWidget(CaptionLabel("左上 X"), 1, 0)
         rgl.addWidget(CaptionLabel("左上 Y"), 1, 1)
@@ -395,12 +392,9 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
             QMessageBox.warning(self, "没有视频", "所选文件夹内未找到视频文件。")
             return
 
-        # 预览第一个视频（满足“预览显示第一个视频的画面”）。
-        # 若之前已导入过视频且设了有效帧范围，则保留该范围；否则默认全片。
-        has_custom_range = (self.metadata is not None and
-                            self.frame_end.value() > self.frame_start.value())
+        # 预览第一个视频（满足“预览显示第一个视频的画面”）；帧范围保持不变（同参考）
         try:
-            self._load_video(videos[0], reset_range=not has_custom_range)
+            self._load_video(videos[0])
         except Exception as e:  # noqa: BLE001
             QMessageBox.critical(self, "预览失败",
                                  f"无法预览第一个视频：\n{e}")

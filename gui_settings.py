@@ -47,7 +47,7 @@ def build_settings_panel(parent) -> dict:
     disable_spin_flyout(start)
     end = CompactSpinBox()
     end.setRange(0, 1)
-    end.setValue(1)          # 默认 0-1 合法范围；0 结束帧=到末尾由导出校验支持
+    end.setValue(0)          # 默认 0-0 = 到末尾（同参考“留空=全片”语义）
     disable_spin_flyout(end)
     set_start = PushButton("设为首帧")
     set_start.setFixedSize(84, 30)
@@ -88,7 +88,7 @@ def build_settings_panel(parent) -> dict:
     plg.addWidget(CaptionLabel("OCR 后端"), 1, 2)
     ocr_backend_combo = ComboBox()
     ocr_backend_combo.addItems(["自动", "CPU", "TensorRT"])
-    ocr_backend_combo.setCurrentIndex(1)      # 默认 CPU
+    ocr_backend_combo.setCurrentIndex(0)      # 默认 自动（同参考；有 TRT 用 TRT，无则回退 ONNX）
     ocr_backend_combo.setFixedWidth(96)
     widgets["ocr_backend_combo"] = ocr_backend_combo
     plg.addWidget(ocr_backend_combo, 1, 3)

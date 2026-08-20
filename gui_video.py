@@ -40,7 +40,7 @@ class VideoLoadMixin:
             QMessageBox.critical(self, "导入失败", str(e))
             self._status_label.setText("导入失败。")
 
-    def _load_video(self, path: Path, reset_range: bool = True) -> None:
+    def _load_video(self, path: Path) -> None:
         vr, _label = open_decord_vr(str(path))
         try:
             codec = vr.get_codec() or "?"
@@ -73,7 +73,7 @@ class VideoLoadMixin:
         self._res_label.setText(f"{w} x {h}")
         self._fps_label.setText(f"{fps:.3f}" if fps > 0 else "Unknown")
         self._codec_label.setText(codec)
-        self._status_label.setText("视频已载入，请设置识别范围与帧范围，然后导出。")
+        self._status_label.setText("视频已载入，请输入识别范围并预览。")
         self._slider.setRange(0, fc - 1)
         self._slider.setValue(0)
         self._frame_label.setText(f"#{0}/{fc}")
@@ -84,12 +84,9 @@ class VideoLoadMixin:
         for s, m in [(self.roi_x1, w), (self.roi_y1, h),
                      (self.roi_x2, w), (self.roi_y2, h)]:
             s.setMaximum(m - 1)
-        # 帧范围默认全片；批量预览第一个视频时可保留用户已设范围（reset_range=False）
+        # 帧范围：只扩展 spin 范围，不自动改值（保持用户已设值/默认 0-0=全片，同参考）
         for s in (self.frame_start, self.frame_end):
             s.setRange(0, fc - 1)
-        if reset_range:
-            self.frame_start.setValue(0)
-            self.frame_end.setValue(fc - 1)
         # 输出命名在导出时通过保存对话框完成（对标参考），无需在此预填
 
     def _on_preview_roi(self, x1: int, y1: int, x2: int, y2: int) -> None:

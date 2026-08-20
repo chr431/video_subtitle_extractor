@@ -56,9 +56,17 @@ def test_write_csv_header_and_quoting(tmp_path):
     m.write_csv(out, [(1, "你好，世界"), (2, "a,b")])
     with open(out, encoding="utf-8-sig", newline="") as f:
         data = list(csv.reader(f))
-    assert data[0] == ["time_sec", "text"]
-    assert data[1] == ["1", "你好，世界"]
-    assert data[2] == ["2", "a,b"]       # 含逗号文本被 csv 引号包裹，读回仍为单值
+    assert data[0] == ["time_mmss", "text"]
+    assert data[1] == ["0:01", "你好，世界"]
+    assert data[2] == ["0:02", "a,b"]       # 含逗号文本被 csv 引号包裹，读回仍为单值
+
+
+def test_format_timestamp_mmss():
+    assert m.format_timestamp(0) == "0:00"
+    assert m.format_timestamp(1) == "0:01"
+    assert m.format_timestamp(65) == "1:05"
+    assert m.format_timestamp(379) == "6:19"
+    assert m.format_timestamp(-3) == "0:00"
 
 
 def test_default_output_path():
@@ -122,10 +130,10 @@ def test_parse_args_default_postprocess_on():
 
 
 def test_parse_args_backend_defaults_and_override():
-    """默认 decode=auto / ocr=cpu；可分别覆盖为 nvdec / tensorrt。"""
+    """默认 decode=auto / ocr=auto；可分别覆盖为 nvdec / tensorrt。"""
     a = m.parse_args(["v.mp4", "--roi", "1", "2", "3", "4"])
     assert a.decode_backend == "auto"
-    assert a.ocr_backend == "cpu"
+    assert a.ocr_backend == "auto"
     b = m.parse_args(["v.mp4", "--roi", "1", "2", "3", "4",
                       "--decode-backend", "nvdec", "--ocr-backend", "tensorrt"])
     assert (b.decode_backend, b.ocr_backend) == ("nvdec", "tensorrt")

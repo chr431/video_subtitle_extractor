@@ -112,13 +112,22 @@ def default_output_path(video: Path) -> Path:
     return video.with_name(video.stem + "_subtitles.csv")
 
 
+def format_timestamp(sec: int) -> str:
+    """秒 → 分:秒（M:SS），如 0→'0:00'、65→'1:05'、379→'6:19'。"""
+    sec = max(0, int(sec))
+    return f"{sec // 60}:{sec % 60:02d}"
+
+
 def write_csv(path: Path, rows: list[tuple[int, str]]) -> None:
-    """写两列 CSV（utf-8-sig，Excel 友好；含逗号文本自动加引号）。"""
+    """写两列 CSV（utf-8-sig，Excel 友好；含逗号文本自动加引号）。
+
+    第一列 time_mmss 为分:秒格式（如 0:01 / 1:05），与参考/人工可读习惯一致。
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f)
-        w.writerow(("time_sec", "text"))
-        w.writerows(rows)
+        w.writerow(("time_mmss", "text"))
+        w.writerows((format_timestamp(t), text) for t, text in rows)
 
 
 # ═══════════════════ CLI ═══════════════════
@@ -141,10 +150,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--decode-backend", dest="decode_backend", default="auto",
                    choices=["auto", "cpu", "nvdec"],
                    help="视频解码后端（默认 auto=GPU 优先回退 CPU）")
-    p.add_argument("--ocr-backend", dest="ocr_backend", default="cpu",
+    p.add_argument("--ocr-backend", dest="ocr_backend", default="auto",
                    choices=["auto", "cpu", "tensorrt"],
-                   help="OCR 后端（默认 cpu=ONNX；auto/tensorrt 需本机 TensorRT，"
-                        "无则自动回退 ONNX）")
+                   help="OCR 后端（默认 auto=有 TRT 用 TRT，无则回退 ONNX）")
     p.add_argument("--no-postprocess", dest="postprocess", action="store_false", default=True,
                    help="关闭后处理（默认开启：剔除重复行与纯数字行）")
     p.add_argument("-o", "--output", default=None,
