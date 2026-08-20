@@ -56,28 +56,30 @@ def test_write_csv_header_and_quoting(tmp_path):
     m.write_csv(out, [(1, "你好，世界"), (2, "a,b")])
     with open(out, encoding="utf-8-sig", newline="") as f:
         data = list(csv.reader(f))
-    assert data[0] == ["time_mmss", "text"]
-    assert data[1] == ["0:01", "你好，世界"]
-    assert data[2] == ["0:02", "a,b"]       # 含逗号文本被 csv 引号包裹，读回仍为单值
+    assert data[0] == ["time_hms", "text"]
+    assert data[1] == ["00:00:01", "你好，世界"]
+    assert data[2] == ["00:00:02", "a,b"]       # 含逗号文本被 csv 引号包裹，读回仍为单值
 
 
-def test_format_timestamp_mmss():
-    assert m.format_timestamp(0) == "0:00"
-    assert m.format_timestamp(1) == "0:01"
-    assert m.format_timestamp(65) == "1:05"
-    assert m.format_timestamp(379) == "6:19"
-    assert m.format_timestamp(-3) == "0:00"
+def test_format_timestamp_hms():
+    assert m.format_timestamp(0) == "00:00:00"
+    assert m.format_timestamp(1) == "00:00:01"
+    assert m.format_timestamp(65) == "00:01:05"
+    assert m.format_timestamp(379) == "00:06:19"
+    assert m.format_timestamp(3600) == "01:00:00"
+    assert m.format_timestamp(3661) == "01:01:01"
+    assert m.format_timestamp(-3) == "00:00:00"
 
 
 def test_write_combined_csv(tmp_path):
-    """批量合并 CSV：三列 video / time_mmss / text。"""
+    """批量合并 CSV：三列 video / time_hms / text。"""
     out = tmp_path / "combined.csv"
     m.write_combined_csv(out, [("a.mp4", 1, "你好"), ("b.MKV", 65, "世界")])
     with open(out, encoding="utf-8-sig", newline="") as f:
         data = list(csv.reader(f))
-    assert data[0] == ["video", "time_mmss", "text"]
-    assert data[1] == ["a.mp4", "0:01", "你好"]
-    assert data[2] == ["b.MKV", "1:05", "世界"]
+    assert data[0] == ["video", "time_hms", "text"]
+    assert data[1] == ["a.mp4", "00:00:01", "你好"]
+    assert data[2] == ["b.MKV", "00:01:05", "世界"]
 
 
 def test_default_output_path():

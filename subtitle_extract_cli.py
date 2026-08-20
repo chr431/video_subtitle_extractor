@@ -113,32 +113,38 @@ def default_output_path(video: Path) -> Path:
 
 
 def format_timestamp(sec: int) -> str:
-    """秒 → 分:秒（M:SS），如 0→'0:00'、65→'1:05'、379→'6:19'。"""
+    """秒 → hh:mm:ss（如 0→'00:00'、65→'00:01:05'、3661→'01:01:01'）。
+
+    统一三部分，Excel 不会再把 M:SS 误识别成时间（避免显示成 mm:ss:00），
+    且兼容 >1 小时视频。
+    """
     sec = max(0, int(sec))
-    return f"{sec // 60}:{sec % 60:02d}"
+    h, rem = divmod(sec, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
 
 
 def write_csv(path: Path, rows: list[tuple[int, str]]) -> None:
     """写两列 CSV（utf-8-sig，Excel 友好；含逗号文本自动加引号）。
 
-    第一列 time_mmss 为分:秒格式（如 0:01 / 1:05），与参考/人工可读习惯一致。
+    第一列 time_hms 为 hh:mm:ss 格式（如 00:00:01 / 00:01:05）。
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f)
-        w.writerow(("time_mmss", "text"))
+        w.writerow(("time_hms", "text"))
         w.writerows((format_timestamp(t), text) for t, text in rows)
 
 
 def write_combined_csv(path: Path, rows: list[tuple[str, int, str]]) -> None:
-    """写批量合并 CSV（三列：视频文件名 / 分:秒时间 / 字幕文本）。
+    """写批量合并 CSV（三列：视频文件名 / hh:mm:ss 时间 / 字幕文本）。
 
     rows: [(video_name, time_sec, text), ...]
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f)
-        w.writerow(("video", "time_mmss", "text"))
+        w.writerow(("video", "time_hms", "text"))
         w.writerows((video, format_timestamp(t), text)
                     for video, t, text in rows)
 

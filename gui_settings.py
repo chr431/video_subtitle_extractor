@@ -112,7 +112,7 @@ def build_settings_panel(parent) -> dict:
     merge = CheckBox("输出为单个文件（合并为一份）")
     widgets["merge_check"] = merge
     ml.addWidget(merge)
-    ml.addWidget(CaptionLabel("列：视频文件名 / 时间(分:秒) / 字幕；开启后不再生成单个视频 CSV。"))
+    ml.addWidget(CaptionLabel("列：视频文件名 / 时间(hh:mm:ss) / 字幕；开启后不再生成单个视频 CSV。"))
     widgets["_merge_card"] = merge_card
 
     ll = QVBoxLayout(parent)
