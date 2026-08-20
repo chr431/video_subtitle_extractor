@@ -78,6 +78,7 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         self._throttle_timer.setSingleShot(True)
         self._throttle_timer.timeout.connect(self._show_throttled_frame)
         self._worker: ExtractWorker | None = None
+        self._batch_videos: list = []      # 批量导入后待处理的视频列表（未开始时为空）
 
         self._build_ui()
         self._connect_signals()
@@ -133,8 +134,11 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         hdr = QHBoxLayout()
         self._import_video_btn = PushButton("导入视频")
         hdr.addWidget(self._import_video_btn)
-        self._batch_btn = PushButton("批量处理…")
+        self._batch_btn = PushButton("批量导入…")
         hdr.addWidget(self._batch_btn)
+        self._batch_start_btn = PrimaryPushButton("开始批量处理")
+        self._batch_start_btn.setEnabled(False)
+        hdr.addWidget(self._batch_start_btn)
         self._file_label = BodyLabel("未导入视频")
         self._file_label.setWordWrap(True)
         hdr.addWidget(self._file_label, 1)
@@ -231,7 +235,8 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
 
     def _connect_signals(self) -> None:
         self._import_video_btn.clicked.connect(self._import_video)
-        self._batch_btn.clicked.connect(self._batch_process)
+        self._batch_btn.clicked.connect(self._batch_import_folder)
+        self._batch_start_btn.clicked.connect(self._batch_start_processing)
         self._export_btn.clicked.connect(self._export_csv)
         self._cancel_btn.clicked.connect(self._cancel_export)
         self._set_start_btn.clicked.connect(
@@ -285,6 +290,7 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
 
         self._import_video_btn.setEnabled(False)
         self._batch_btn.setEnabled(False)
+        self._batch_start_btn.setEnabled(False)
         self._export_btn.setEnabled(False)
         self._cancel_btn.setEnabled(True)
         self._progress_bar.setValue(0)
@@ -312,6 +318,7 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
     def _on_export_done(self, rows: int, out: str, fps: float) -> None:
         self._import_video_btn.setEnabled(True)
         self._batch_btn.setEnabled(True)
+        self._batch_start_btn.setEnabled(bool(self._batch_videos))
         self._export_btn.setEnabled(True)
         self._cancel_btn.setEnabled(False)
         self._progress_bar.setValue(100)
@@ -321,6 +328,7 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
     def _on_export_failed(self, msg: str) -> None:
         self._import_video_btn.setEnabled(True)
         self._batch_btn.setEnabled(True)
+        self._batch_start_btn.setEnabled(bool(self._batch_videos))
         self._export_btn.setEnabled(True)
         self._cancel_btn.setEnabled(False)
         self._progress_bar.setValue(0)
@@ -330,7 +338,18 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
 
     # ═══════════════════ 批量处理 ═══════════════════
 
-    def _batch_process(self) -> None:
+    def _clear_batch(self) -> None:
+        """清除当前批量待处理列表（例如用户改导入单个视频时）。"""
+        self._batch_videos = []
+        self._batch_start_btn.setEnabled(False)
+
+    def _import_video(self) -> None:
+        """覆盖：导入单个视频后清空批量待处理状态，避免误触发批量。"""
+        super()._import_video()
+        self._clear_batch()
+
+    def _batch_import_folder(self) -> None:
+        """批量导入：仅选择文件夹 + 预览第一个视频，等用户调好参数后再开始。"""
         if self._worker is not None and self._worker.isRunning():
             return
         folder = QFileDialog.getExistingDirectory(self, "选择视频文件夹", "")
@@ -339,16 +358,6 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         videos = discover_videos(Path(folder))
         if not videos:
             QMessageBox.warning(self, "没有视频", "所选文件夹内未找到视频文件。")
-            return
-        x1, y1, x2, y2 = (s.value() for s in (self.roi_x1, self.roi_y1,
-                                               self.roi_x2, self.roi_y2))
-        if x2 <= x1 or y2 <= y1:
-            QMessageBox.warning(self, "提示", "识别范围无效：右下必须大于左上（像素）。")
-            return
-        # 结束帧 0 表示“到视频末尾”（与 CLI 一致），只有 0<end<=start 才无效
-        if (self.frame_end.value() != 0 and
-                self.frame_end.value() <= self.frame_start.value()):
-            QMessageBox.warning(self, "提示", "帧范围无效：结束帧必须大于开始帧（0 表示到视频末尾）。")
             return
 
         # 预览第一个视频（满足“预览显示第一个视频的画面”）。
@@ -362,8 +371,35 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
                                  f"无法预览第一个视频：\n{e}")
             return
 
+        self._batch_videos = videos
+        self._batch_start_btn.setEnabled(True)
+        self._status_label.setText(
+            f"已选择 {len(videos)} 个视频，请调整 ROI/帧范围/后端后点「开始批量处理」。")
+        self._file_label.setText(
+            f"批量：{len(videos)} 个视频（{Path(folder)}）")
+
+    def _batch_start_processing(self) -> None:
+        """开始批量处理：校验参数并启动顺序处理所有已导入的视频。"""
+        if not self._batch_videos:
+            QMessageBox.warning(self, "提示", "请先点击「批量导入…」选择视频文件夹。")
+            return
+        if self._worker is not None and self._worker.isRunning():
+            return
+        videos = self._batch_videos
+        x1, y1, x2, y2 = (s.value() for s in (self.roi_x1, self.roi_y1,
+                                               self.roi_x2, self.roi_y2))
+        if x2 <= x1 or y2 <= y1:
+            QMessageBox.warning(self, "提示", "识别范围无效：右下必须大于左上（像素）。")
+            return
+        # 结束帧 0 表示“到视频末尾”（与 CLI 一致），只有 0<end<=start 才无效
+        if (self.frame_end.value() != 0 and
+                self.frame_end.value() <= self.frame_start.value()):
+            QMessageBox.warning(self, "提示", "帧范围无效：结束帧必须大于开始帧（0 表示到视频末尾）。")
+            return
+
         self._import_video_btn.setEnabled(False)
         self._batch_btn.setEnabled(False)
+        self._batch_start_btn.setEnabled(False)
         self._export_btn.setEnabled(False)
         self._cancel_btn.setEnabled(True)
         self._progress_bar.setValue(0)
@@ -397,6 +433,7 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
     def _on_batch_done(self, ok: int, total: int, failures: list) -> None:
         self._import_video_btn.setEnabled(True)
         self._batch_btn.setEnabled(True)
+        self._batch_start_btn.setEnabled(bool(self._batch_videos))
         self._export_btn.setEnabled(True)
         self._cancel_btn.setEnabled(False)
         if ok == total:
