@@ -115,10 +115,10 @@ def build_settings_panel(parent) -> dict:
     ml.addWidget(merge)
     ml.addWidget(CaptionLabel("列：视频文件名 / 时间(hh:mm:ss) / 字幕；开启后不再生成单个视频 CSV。"))
     dual = CheckBox("双引擎并行处理（CPU + GPU/TRT 同时跑）")
-    dual.setChecked(True)
+    dual.setChecked(False)
     widgets["dual_check"] = dual
     ml.addWidget(dual)
-    ml.addWidget(CaptionLabel("仅批量模式生效：两个实例用互补后端消费视频队列，实测约 1.6× 加速。"))
+    ml.addWidget(CaptionLabel("仅批量模式生效，需要 NVDEC 和 TensorRT 均可用；否则自动回退单实例。"))
     widgets["_merge_card"] = merge_card
 
     ll = QVBoxLayout(parent)

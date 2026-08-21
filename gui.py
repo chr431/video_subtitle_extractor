@@ -26,7 +26,9 @@ from qfluentwidgets import (
 )
 
 from app_config import app_config
-from extract_worker import BatchExtractWorker, ExtractWorker
+from extract_worker import (
+    BatchExtractWorker, ExtractWorker, _nvdec_available, _tensorrt_available,
+)
 from gui_settings import build_settings_panel
 from gui_video import VideoLoadMixin
 from preview_widget import PreviewWidget
@@ -442,6 +444,14 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
                 return
             combined_output = Path(out_text)
 
+        dual_workers = self.dual_check.isChecked()
+        if dual_workers and not (
+                _nvdec_available(videos[0]) and _tensorrt_available()):
+            QMessageBox.warning(
+                self, "双引擎不可用",
+                "双引擎并行需要 NVDEC 和 TensorRT 均可用，本次已回退为单实例处理。")
+            dual_workers = False
+
         self._import_video_btn.setEnabled(False)
         self._batch_btn.setEnabled(False)
         self._batch_start_btn.setEnabled(False)
@@ -459,7 +469,7 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
             decode_backend=("auto", "cpu", "nvdec")[self.backend_combo.currentIndex()],
             ocr_backend=("auto", "cpu", "tensorrt")[self.ocr_backend_combo.currentIndex()],
             combined_output=combined_output,
-            dual_workers=self.dual_check.isChecked(),
+            dual_workers=dual_workers,
         )
         worker.progress.connect(self._on_batch_progress)
         worker.video_done.connect(self._on_batch_video_done)

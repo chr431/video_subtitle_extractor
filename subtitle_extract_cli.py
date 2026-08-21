@@ -217,6 +217,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="关闭后处理（默认开启：剔除重复行与纯数字行）")
     p.add_argument("--no-merge-similar", dest="merge_similar", action="store_false", default=True,
                    help="关闭相似段合并（默认开启：噪声把同一条字幕切成多段时只 OCR 一次）")
+    p.add_argument("--dual", dest="dual", action="store_true", default=False,
+                   help="双引擎并行（仅批量模式；当前 CLI 为单视频模式，指定时将被忽略并提示）")
     p.add_argument("-o", "--output", default=None,
                    help="输出 CSV 路径（默认 <视频名>_subtitles.csv）")
     return p.parse_args(argv)
@@ -232,6 +234,9 @@ def _progress(msg: str, pct: float) -> None:
 def main(argv: list[str] | None = None) -> int:
     _force_utf8_stdio()
     args = parse_args(argv)
+    if args.dual:
+        print("警告: --dual 仅在批量模式有效；当前 CLI 为单视频模式，已忽略。",
+              file=sys.stderr)
     video = Path(args.video)
     if not video.is_file():
         print(f"错误: 找不到视频文件 {video}", file=sys.stderr)

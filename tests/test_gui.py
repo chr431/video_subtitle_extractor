@@ -47,6 +47,7 @@ def test_gui_constructs_smoke(app):
         assert not w._batch_start_btn.isEnabled()      # 初始禁用，导入文件夹后才启用
         assert hasattr(w, "merge_check")               # 批量“输出为单个文件”选项
         assert hasattr(w, "dual_check")                # 批量“双引擎并行处理”选项
+        assert not w.dual_check.isChecked()            # 默认关闭
         assert w._merge_card.isHidden()                # 初始在单视频 tab 隐藏
         w._tab_pivot.setCurrentItem("batch")
         app.processEvents()
@@ -86,7 +87,7 @@ def test_batch_worker_start_and_cancel_callable():
     assert callable(w.cancel)
     assert len(w.videos) == 2
     assert str(w.combined_output) == "merged.csv"
-    assert w.dual_workers is True
+    assert w.dual_workers is False
 
 
 def test_opposite_backends():
