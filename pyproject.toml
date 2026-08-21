@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "video-subtitle-extractor"
-version = "0.1.0"
+version = "0.2.0"
 description = "从视频固定区域提取字幕/文本：CLI + GUI（PySide6 + qfluentwidgets），基于 video_ocr_engine，输出 时间戳+原始文本 CSV（支持分频采样）。"
 readme = "README.md"
 requires-python = ">=3.11"

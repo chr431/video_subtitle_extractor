@@ -1,5 +1,22 @@
 # Release Notes
 
+## v0.2.0（2026-08-21）— 字幕提取性能大幅提升
+
+### ⚡ 性能
+
+- **相似段合并默认开启**：噪声把同一条字幕切成多段时，OCR 前自动合并，只识别一次。
+  - 高噪声视频（新三国03）段数 6506 → 约 1165，OCR 次数减少约 82%
+  - CPU+TRT 单集约 29.4s → 16.1s；CPU+CPU 约 60s → 20.5s
+- **gray 输出默认开启**：字幕场景不需要彩色预览，减少解码/转换数据量
+- 默认关闭代表帧/帧序列保留（`keep_crops=False` / `keep_frames=False`），降低长视频内存
+- 5 集 batch 队列实测（CPU+TRT+merge）：约 **80.8s**
+
+### 🔧 兼容
+
+- 保留 `--no-merge-similar` 可关闭相似段合并
+- 保留 `--decode-backend auto/cpu/nvdec`、`--ocr-backend auto/cpu/tensorrt`
+- 默认解码后端保持 `auto`（NVDEC 优先，不可用回退 CPU）
+
 ## v0.1.0（2026-08-20）— 首个正式发布
 
 ### 🎉 功能
