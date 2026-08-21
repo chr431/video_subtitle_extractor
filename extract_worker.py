@@ -34,7 +34,7 @@ class ExtractWorker(QThread):
 
     def __init__(self, video: Path, roi: tuple, start: int, end: int,
                  stride: int, out: Path, postprocess: bool = True,
-                 decode_backend: str = "cpu", ocr_backend: str = "auto",
+                 decode_backend: str = "auto", ocr_backend: str = "cpu",
                  parent=None) -> None:
         super().__init__(parent)
         # 注意：不能用 self.start/self.end 命名，会遮蔽 QThread.start() 方法
@@ -102,7 +102,7 @@ class BatchExtractWorker(QThread):
 
     def __init__(self, videos: list, roi: tuple, start: int, end: int,
                  stride: int, postprocess: bool = True,
-                 decode_backend: str = "cpu", ocr_backend: str = "auto",
+                 decode_backend: str = "auto", ocr_backend: str = "auto",
                  output_dir=None, combined_output=None, parent=None) -> None:
         super().__init__(parent)
         self.videos = list(videos)

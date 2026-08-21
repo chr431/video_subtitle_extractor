@@ -36,7 +36,7 @@ def test_gui_constructs_smoke(app):
         assert hasattr(w, "ocr_backend_combo")        # OCR 后端（auto/CPU/TensorRT）
         assert w.backend_combo.count() == 3
         assert w.ocr_backend_combo.count() == 3
-        assert w.backend_combo.currentIndex() == 1  # 默认 CPU 解码（标清/跳帧场景优化）
+        assert w.backend_combo.currentIndex() == 0  # 默认 auto：NVDEC 优先回退 CPU
         assert not hasattr(w, "output_edit")          # 输出改为保存对话框，不再有输出框
         assert not hasattr(w, "_settings_tab")        # 设置 tab 已删除
         assert hasattr(w, "_tab_pivot")               # 两个 tab：单视频 / 批量

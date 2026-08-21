@@ -81,8 +81,8 @@ def build_settings_panel(parent) -> dict:
     plg.addWidget(CaptionLabel("解码后端"), 1, 0)
     backend_combo = ComboBox()
     backend_combo.addItems(["自动", "CPU", "NVDEC"])
-    # 标清 h264 + 跳帧场景 CPU 软解实测最快（且与 TRT OCR 并发更优）
-    backend_combo.setCurrentIndex(1)          # CPU
+    # 默认 auto：优先 NVDEC，不可用回退 CPU（兼容弱 CPU / HEVC / AV1 用户）
+    backend_combo.setCurrentIndex(0)          # auto
     backend_combo.setFixedWidth(96)
     widgets["backend_combo"] = backend_combo
     plg.addWidget(backend_combo, 1, 1)
