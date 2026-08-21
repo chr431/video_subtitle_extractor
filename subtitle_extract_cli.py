@@ -206,9 +206,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--sample-stride", dest="sample_stride", type=int, default=1,
                    help="分频采样步长（默认 1=逐帧；>1 时只处理每个第 N 帧，"
                         "适合字幕等慢更新内容降低解码/处理压力；需 decord ≥0.7.12）")
-    p.add_argument("--decode-backend", dest="decode_backend", default="auto",
+    p.add_argument("--decode-backend", dest="decode_backend", default="cpu",
                    choices=["auto", "cpu", "nvdec"],
-                   help="视频解码后端（默认 auto=GPU 优先回退 CPU）")
+                   help="视频解码后端（默认 cpu：标清 h264 + 跳帧场景实测最快；"
+                        "auto=GPU 优先回退 CPU，nvdec=强制 NVDEC）")
     p.add_argument("--ocr-backend", dest="ocr_backend", default="auto",
                    choices=["auto", "cpu", "tensorrt"],
                    help="OCR 后端（默认 auto=有 TRT 用 TRT，无则回退 ONNX）")
@@ -255,7 +256,9 @@ def main(argv: list[str] | None = None) -> int:
         sample_stride=args.sample_stride,
         decode_backend=args.decode_backend, ocr_backend=args.ocr_backend,
         progress_cb=ProgressGate(_progress),
-        # 字幕场景不需要代表帧/帧序列预览，关闭以降低长视频内存
+        # 字幕场景不需要代表帧/帧序列预览，关闭以降低长视频内存；
+        # gray 输出减少解码/转换数据量（标清宽 ROI 实测更快）
+        gray_output=True,
         keep_crops=False,
         keep_frames=False,
     )

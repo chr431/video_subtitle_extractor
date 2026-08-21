@@ -159,9 +159,9 @@ def test_parse_args_default_postprocess_on():
 
 
 def test_parse_args_backend_defaults_and_override():
-    """默认 decode=auto / ocr=auto；可分别覆盖为 nvdec / tensorrt。"""
+    """默认 decode=cpu / ocr=auto；可分别覆盖为 nvdec / tensorrt。"""
     a = m.parse_args(["v.mp4", "--roi", "1", "2", "3", "4"])
-    assert a.decode_backend == "auto"
+    assert a.decode_backend == "cpu"
     assert a.ocr_backend == "auto"
     b = m.parse_args(["v.mp4", "--roi", "1", "2", "3", "4",
                       "--decode-backend", "nvdec", "--ocr-backend", "tensorrt"])

@@ -88,7 +88,8 @@ GUI 框架对齐 RaceVideoToLog：**两个页签（单视频 / 批量）+ 底部
 - **共用**：左面板可选择 **解码后端**（自动/CPU/NVDEC）与 **OCR 后端**
   （自动/CPU/TensorRT）；后台线程跑引擎（进度条实时反馈），可随时「取消」；
   **导出后处理**（默认开启）剔除重复行与纯数字行（左侧面板开关）
-- **默认值对齐参考**：解码后端=自动、OCR 后端=自动、ROI 初始 0、帧范围 0-0（=全片）；
+- **默认值对齐参考**：解码后端=CPU、OCR 后端=自动、ROI 初始 0、帧范围 0-0（=全片）；
+  引擎内部以 gray 输出运行（字幕场景不需要彩色预览，减少解码/转换数据量）；
   导入视频后不自动改写帧范围值（用户已设值保留）
 
 ### TRT（可选，thin binding）
@@ -117,7 +118,7 @@ master element”的良性日志（容器不规范，但可跳过继续解码，
 | `--start-frame N` | 0 | 开始帧号 |
 | `--end-frame N` | 到末尾 | 结束帧号（0 视为末尾） |
 | `--sample-stride N` | 1 | 分频采样步长：只处理每个第 N 帧（字幕等慢更新内容） |
-| `--decode-backend` | auto | 解码后端：auto / cpu / nvdec |
+| `--decode-backend` | cpu | 解码后端：auto / cpu / nvdec（标清 h264 + 跳帧场景默认 CPU 软解实测最快；auto=GPU 优先回退 CPU） |
 | `--ocr-backend` | auto | OCR 后端：auto / cpu / tensorrt（无 TRT 自动回退 ONNX） |
 | `--no-postprocess` | 关 | 关闭后处理（默认开启：剔除重复行与纯数字行） |
 | `-o, --output` | `<视频名>_subtitles.csv` | 输出 CSV 路径 |

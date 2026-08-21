@@ -34,7 +34,7 @@ class ExtractWorker(QThread):
 
     def __init__(self, video: Path, roi: tuple, start: int, end: int,
                  stride: int, out: Path, postprocess: bool = True,
-                 decode_backend: str = "auto", ocr_backend: str = "cpu",
+                 decode_backend: str = "cpu", ocr_backend: str = "auto",
                  parent=None) -> None:
         super().__init__(parent)
         # 注意：不能用 self.start/self.end 命名，会遮蔽 QThread.start() 方法
@@ -65,7 +65,9 @@ class ExtractWorker(QThread):
                 progress_cb=ProgressGate(
                     lambda m, p: self.progress.emit(m, p)),
                 cancel_check=self._check_cancel,
-                # 字幕场景不需要代表帧/帧序列预览，关闭以降低长视频内存
+                # 字幕场景不需要代表帧/帧序列预览，关闭以降低长视频内存；
+                # gray 输出减少解码/转换数据量（标清宽 ROI 实测更快）
+                gray_output=True,
                 keep_crops=False,
                 keep_frames=False,
             )
@@ -100,7 +102,7 @@ class BatchExtractWorker(QThread):
 
     def __init__(self, videos: list, roi: tuple, start: int, end: int,
                  stride: int, postprocess: bool = True,
-                 decode_backend: str = "auto", ocr_backend: str = "auto",
+                 decode_backend: str = "cpu", ocr_backend: str = "auto",
                  output_dir=None, combined_output=None, parent=None) -> None:
         super().__init__(parent)
         self.videos = list(videos)
@@ -157,6 +159,7 @@ class BatchExtractWorker(QThread):
                     ocr_backend=self.ocr_backend,
                     progress_cb=gate,
                     cancel_check=self._check_cancel,
+                    gray_output=True,
                     keep_crops=False,
                     keep_frames=False,
                 )
