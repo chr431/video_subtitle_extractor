@@ -1,6 +1,8 @@
 """导出 worker — 后台线程跑引擎 FieldExtractor + 写 CSV（保持 GUI 响应）。"""
 from __future__ import annotations
 
+import queue
+import threading
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
@@ -17,6 +19,20 @@ from subtitle_extract_cli import (  # noqa: E402
 
 class _Cancelled(Exception):
     pass
+
+
+def _opposite_decode(backend: str) -> str:
+    """返回互补解码后端：CPU 软解 ↔ 自动/NVDEC（GPU 优先）。"""
+    return "auto" if (backend or "").strip().lower() == "cpu" else "cpu"
+
+
+def _opposite_ocr(backend: str) -> str:
+    """返回互补 OCR 后端：CPU ONNX ↔ 自动/TensorRT（GPU 优先）。"""
+    return "auto" if (backend or "").strip().lower() == "cpu" else "cpu"
+
+
+def _opposite_backends(decode: str, ocr: str) -> tuple[str, str]:
+    return _opposite_decode(decode), _opposite_ocr(ocr)
 
 
 class ExtractWorker(QThread):
@@ -89,7 +105,12 @@ class ExtractWorker(QThread):
 
 
 class BatchExtractWorker(QThread):
-    """批量导出 worker — 顺序处理文件夹内所有视频，逐个写 CSV。
+    """批量导出 worker — 双引擎实例并发消费视频队列。
+
+    两个消费者分别使用互补后端：
+      - 主实例：用户选择的 decode_backend / ocr_backend
+      - 副实例：自动取相反组合（CPU ↔ GPU/TRT）
+    这样 5 视频队列可同时利用 CPU 与 GPU，缩短总墙钟。
 
     信号:
         progress(str, float)       — 总体进度消息 + 百分比 0-100
@@ -104,7 +125,8 @@ class BatchExtractWorker(QThread):
     def __init__(self, videos: list, roi: tuple, start: int, end: int,
                  stride: int, postprocess: bool = True,
                  decode_backend: str = "auto", ocr_backend: str = "auto",
-                 output_dir=None, combined_output=None, parent=None) -> None:
+                 output_dir=None, combined_output=None, parent=None,
+                 dual_workers: bool = True) -> None:
         super().__init__(parent)
         self.videos = list(videos)
         self.roi = roi
@@ -116,6 +138,7 @@ class BatchExtractWorker(QThread):
         self.ocr_backend = ocr_backend
         self.output_dir = output_dir
         self.combined_output = Path(combined_output) if combined_output else None
+        self.dual_workers = bool(dual_workers)
         self._cancelled = False
 
     def cancel(self) -> None:
@@ -135,20 +158,30 @@ class BatchExtractWorker(QThread):
         ok = 0
         failures: list[str] = []
         combined_rows: list[tuple[str, int, str]] = []
+        lock = threading.Lock()
+        jq: "queue.Queue[tuple[int, Path, Path]]" = queue.Queue()
         for i, video in enumerate(self.videos, 1):
-            if self._cancelled:
-                break
-            self.progress.emit(
-                f"批量处理 {i}/{total}: {video.name}（解码+分段+OCR）",
-                (i - 1) / total * 100 if total else 0)
             out = self.combined_output or self._output_path(video)
+            jq.put((i, video, out))
+
+        def _progress_for(i: int, video: Path, m: str, p: float) -> None:
+            overall = (i - 1) / total * 100 + p / total if total else p
+            self.progress.emit(
+                f"批量处理 {i}/{total}: {video.name} {m}", overall)
+
+        def _process(job: tuple, dec: str, ocr: str) -> None:
+            nonlocal ok
+            i, video, out = job
+            if self._cancelled:
+                return
+            self.progress.emit(
+                f"批量处理 {i}/{total}: {video.name}（dec={dec}, ocr={ocr}）",
+                (i - 1) / total * 100 if total else 0)
             try:
                 # 引擎进度收敛为单调；并映射到批量总体区间
                 # （第 i 个视频内 0-100 → 总体 [(i-1)/N, i/N]）
                 def _progress(m: str, p: float) -> None:
-                    overall = (i - 1) / total * 100 + p / total if total else p
-                    self.progress.emit(
-                        f"批量处理 {i}/{total}: {video.name} {m}", overall)
+                    _progress_for(i, video, m, p)
 
                 gate = ProgressGate(_progress)
                 ex = FieldExtractor(
@@ -156,8 +189,8 @@ class BatchExtractWorker(QThread):
                     frame_start=self.start_frame,
                     frame_end=None if (self.end_frame is None or self.end_frame <= 0) else self.end_frame,
                     sample_stride=self.stride,
-                    decode_backend=self.decode_backend,
-                    ocr_backend=self.ocr_backend,
+                    decode_backend=dec,
+                    ocr_backend=ocr,
                     progress_cb=gate,
                     cancel_check=self._check_cancel,
                     gray_output=True,
@@ -169,21 +202,46 @@ class BatchExtractWorker(QThread):
                 rows = build_rows(result)
                 if self.postprocess:
                     rows = postprocess_rows(rows)
-                if self.combined_output is not None:
-                    # 合并模式：先累计，结束时一次写入单文件
-                    combined_rows.extend(
-                        (video.name, t, text) for t, text in rows)
-                else:
-                    write_csv(out, rows)
-                ok += 1
+                with lock:
+                    if self.combined_output is not None:
+                        combined_rows.extend(
+                            (video.name, t, text) for t, text in rows)
+                    else:
+                        write_csv(out, rows)
+                    ok += 1
                 self.video_done.emit(i, total, len(rows), str(out))
             except _Cancelled:
-                break
+                return
             except Exception as e:  # noqa: BLE001 — 单个失败继续处理下一个
-                failures.append(f"{video.name}: {e}")
+                with lock:
+                    failures.append(f"{video.name}: {e}")
                 self.progress.emit(
                     f"批量处理 {i}/{total}: {video.name} 失败，继续下一个",
                     i / total * 100 if total else 0)
+
+        def _consumer(dec: str, ocr: str) -> None:
+            while not self._cancelled:
+                try:
+                    job = jq.get_nowait()
+                except queue.Empty:
+                    return
+                try:
+                    _process(job, dec, ocr)
+                finally:
+                    jq.task_done()
+
+        pairs = [(self.decode_backend, self.ocr_backend)]
+        if self.dual_workers:
+            pairs.append(_opposite_backends(
+                self.decode_backend, self.ocr_backend))
+        threads = []
+        for dec, ocr in pairs:
+            t = threading.Thread(target=_consumer, args=(dec, ocr), daemon=True)
+            t.start()
+            threads.append(t)
+        for t in threads:
+            t.join()
+
         if self.combined_output is not None:
             try:
                 write_combined_csv(self.combined_output, combined_rows)

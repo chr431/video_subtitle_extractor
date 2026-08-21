@@ -85,3 +85,17 @@ def test_batch_worker_start_and_cancel_callable():
     assert callable(w.cancel)
     assert len(w.videos) == 2
     assert str(w.combined_output) == "merged.csv"
+    assert w.dual_workers is True
+
+
+def test_opposite_backends():
+    from extract_worker import _opposite_backends, _opposite_decode, _opposite_ocr
+    assert _opposite_decode("auto") == "cpu"
+    assert _opposite_decode("cpu") == "auto"
+    assert _opposite_decode("nvdec") == "cpu"
+    assert _opposite_ocr("auto") == "cpu"
+    assert _opposite_ocr("cpu") == "auto"
+    assert _opposite_ocr("tensorrt") == "cpu"
+    assert _opposite_backends("auto", "auto") == ("cpu", "cpu")
+    assert _opposite_backends("cpu", "cpu") == ("auto", "auto")
+    assert _opposite_backends("cpu", "tensorrt") == ("auto", "cpu")
