@@ -182,6 +182,29 @@ def test_parse_args_dual_default_false_and_override():
     assert b.dual is True
 
 
+def test_parse_args_batch_mode_options():
+    a = m.parse_args(["--batch-dir", "D:/videos", "--roi", "1", "2", "3", "4",
+                      "--combined", "--dual", "--output", "out.csv"])
+    assert a.batch_dir == "D:/videos"
+    assert a.video is None
+    assert a.combined is True
+    assert a.dual is True
+    assert a.output == "out.csv"
+    b = m.parse_args(["--batch-dir", "D:/videos", "--roi", "1", "2", "3", "4",
+                      "--output-dir", "D:/out"])
+    assert b.output_dir == "D:/out"
+    assert b.combined is False
+
+
+def test_main_requires_exactly_one_input():
+    assert m.main(["--roi", "1", "2", "3", "4"]) == 2
+    assert m.main(["v.mp4", "--batch-dir", "D:/x", "--roi", "1", "2", "3", "4"]) == 2
+
+
+def test_main_batch_missing_dir_returns_2():
+    assert m.main(["--batch-dir", "D:/no_such_dir_xyz", "--roi", "1", "2", "3", "4"]) == 2
+
+
 def test_discover_videos_sorted_and_extension_case_insensitive(tmp_path):
     """批量处理：只收集视频文件，按文件名排序，扩展名大小写不敏感。"""
     (tmp_path / "b.MKV").write_bytes(b"x")

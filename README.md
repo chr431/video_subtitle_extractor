@@ -63,6 +63,18 @@ python subtitle_extract_cli.py episode.mkv --roi 10 850 1910 940 \
 
 # pip 安装后可用命令
 subtitle-extract episode.mkv --roi 10 850 1910 940 -o subtitles.csv
+
+# 批量处理文件夹（每个视频输出 <视频名>_subtitles.csv）
+python subtitle_extract_cli.py --batch-dir D:\videos --roi 10 850 1910 940 \
+    --sample-stride 3
+
+# 批量合并为单个 CSV
+python subtitle_extract_cli.py --batch-dir D:\videos --roi 10 850 1910 940 \
+    --combined -o merged.csv
+
+# 批量 + 双引擎并行（需要 NVDEC 与 TensorRT 均可用，否则自动回退单实例）
+python subtitle_extract_cli.py --batch-dir D:\videos --roi 10 850 1910 940 \
+    --dual --combined -o merged.csv
 ```
 
 ### GUI（Pivot 导航：提取 + 设置 两页）
@@ -117,7 +129,8 @@ master element”的良性日志（容器不规范，但可跳过继续解码，
 
 | 参数 | 默认 | 说明 |
 |------|------|------|
-| `video` | — | 视频输入（位置参数） |
+| `video` | — | 视频输入（位置参数，单视频模式） |
+| `--batch-dir FOLDER` | — | 批量处理文件夹（与 video 二选一） |
 | `--roi X1 Y1 X2 Y2` | 必填 | 字幕/文本条区域 |
 | `--start-frame N` | 0 | 开始帧号 |
 | `--end-frame N` | 到末尾 | 结束帧号（0 视为末尾） |
@@ -126,8 +139,10 @@ master element”的良性日志（容器不规范，但可跳过继续解码，
 | `--ocr-backend` | auto | OCR 后端：auto / cpu / tensorrt（无 TRT 自动回退 ONNX） |
 | `--no-postprocess` | 关 | 关闭后处理（默认开启：剔除重复行与纯数字行） |
 | `--no-merge-similar` | 关 | 关闭相似段合并（默认开启：噪声把同一条字幕切成多段时只 OCR 一次） |
-| `--dual` | 关 | 双引擎并行（仅批量模式；当前 CLI 为单视频模式，指定时提示并忽略） |
-| `-o, --output` | `<视频名>_subtitles.csv` | 输出 CSV 路径 |
+| `--dual` | 关 | 双引擎并行（仅批量模式；需要 NVDEC 和 TensorRT 均可用，否则自动回退单实例） |
+| `--combined` | 关 | 批量模式输出为单个合并 CSV |
+| `--output-dir DIR` | — | 批量模式单个 CSV 的输出目录 |
+| `-o, --output` | `<视频名>_subtitles.csv` | 单视频输出路径；批量 + `--combined` 时是合并 CSV 路径 |
 
 ### CSV 输出
 
