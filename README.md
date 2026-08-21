@@ -122,6 +122,7 @@ master element”的良性日志（容器不规范，但可跳过继续解码，
 | `--decode-backend` | auto | 解码后端：auto / cpu / nvdec（auto=NVDEC 优先，不可用回退 CPU） |
 | `--ocr-backend` | auto | OCR 后端：auto / cpu / tensorrt（无 TRT 自动回退 ONNX） |
 | `--no-postprocess` | 关 | 关闭后处理（默认开启：剔除重复行与纯数字行） |
+| `--no-merge-similar` | 关 | 关闭相似段合并（默认开启：噪声把同一条字幕切成多段时只 OCR 一次） |
 | `-o, --output` | `<视频名>_subtitles.csv` | 输出 CSV 路径 |
 
 ### CSV 输出
@@ -141,6 +142,9 @@ master element”的良性日志（容器不规范，但可跳过继续解码，
 - **后处理**（默认开启，`--no-postprocess` 关闭 / 左侧面板开关）：剔除
   「纯数字行」（`isdigit`，含全角数字）与「(time_hms, text) 重复行」；
   不同秒数的相同文本（字幕持续多行）不算重复，予以保留。
+- **相似段合并**（默认开启，`--no-merge-similar` 关闭）：引擎在 OCR 前比较
+  相邻段代表帧灰度，若平均绝对差 ≤ 3.0 则视为同一条字幕被噪声切成多段，
+  合并为一段并只 OCR 一次；可显著减少高噪声/高分段视频的 OCR 次数。
 
 ## 测试
 

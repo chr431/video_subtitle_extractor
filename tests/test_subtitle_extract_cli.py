@@ -168,6 +168,13 @@ def test_parse_args_backend_defaults_and_override():
     assert (b.decode_backend, b.ocr_backend) == ("nvdec", "tensorrt")
 
 
+def test_parse_args_merge_similar_default_on_and_override():
+    a = m.parse_args(["v.mp4", "--roi", "1", "2", "3", "4"])
+    assert a.merge_similar is True
+    b = m.parse_args(["v.mp4", "--roi", "1", "2", "3", "4", "--no-merge-similar"])
+    assert b.merge_similar is False
+
+
 def test_discover_videos_sorted_and_extension_case_insensitive(tmp_path):
     """批量处理：只收集视频文件，按文件名排序，扩展名大小写不敏感。"""
     (tmp_path / "b.MKV").write_bytes(b"x")

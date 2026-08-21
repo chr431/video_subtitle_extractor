@@ -70,6 +70,7 @@ class ExtractWorker(QThread):
                 gray_output=True,
                 keep_crops=False,
                 keep_frames=False,
+                merge_similar=True,
             )
             result = ex.extract()
             rows = build_rows(result)
@@ -162,6 +163,7 @@ class BatchExtractWorker(QThread):
                     gray_output=True,
                     keep_crops=False,
                     keep_frames=False,
+                    merge_similar=True,
                 )
                 result = ex.extract()
                 rows = build_rows(result)

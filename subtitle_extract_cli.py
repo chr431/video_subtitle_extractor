@@ -215,6 +215,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="OCR 后端（默认 auto=有 TRT 用 TRT，无则回退 ONNX）")
     p.add_argument("--no-postprocess", dest="postprocess", action="store_false", default=True,
                    help="关闭后处理（默认开启：剔除重复行与纯数字行）")
+    p.add_argument("--no-merge-similar", dest="merge_similar", action="store_false", default=True,
+                   help="关闭相似段合并（默认开启：噪声把同一条字幕切成多段时只 OCR 一次）")
     p.add_argument("-o", "--output", default=None,
                    help="输出 CSV 路径（默认 <视频名>_subtitles.csv）")
     return p.parse_args(argv)
@@ -261,6 +263,7 @@ def main(argv: list[str] | None = None) -> int:
         gray_output=True,
         keep_crops=False,
         keep_frames=False,
+        merge_similar=args.merge_similar,
     )
     print(f"解码+分段+OCR: {video}  roi={args.roi}  frames=[{args.start_frame},{end if end is not None else 'end'}]  sample_stride={args.sample_stride}  decode={args.decode_backend}  ocr={args.ocr_backend}",
           file=sys.stderr)
