@@ -255,6 +255,9 @@ def main(argv: list[str] | None = None) -> int:
         sample_stride=args.sample_stride,
         decode_backend=args.decode_backend, ocr_backend=args.ocr_backend,
         progress_cb=ProgressGate(_progress),
+        # 字幕场景不需要代表帧/帧序列预览，关闭以降低长视频内存
+        keep_crops=False,
+        keep_frames=False,
     )
     print(f"解码+分段+OCR: {video}  roi={args.roi}  frames=[{args.start_frame},{end if end is not None else 'end'}]  sample_stride={args.sample_stride}  decode={args.decode_backend}  ocr={args.ocr_backend}",
           file=sys.stderr)

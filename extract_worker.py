@@ -65,6 +65,9 @@ class ExtractWorker(QThread):
                 progress_cb=ProgressGate(
                     lambda m, p: self.progress.emit(m, p)),
                 cancel_check=self._check_cancel,
+                # 字幕场景不需要代表帧/帧序列预览，关闭以降低长视频内存
+                keep_crops=False,
+                keep_frames=False,
             )
             result = ex.extract()
             rows = build_rows(result)
@@ -154,6 +157,8 @@ class BatchExtractWorker(QThread):
                     ocr_backend=self.ocr_backend,
                     progress_cb=gate,
                     cancel_check=self._check_cancel,
+                    keep_crops=False,
+                    keep_frames=False,
                 )
                 result = ex.extract()
                 rows = build_rows(result)
