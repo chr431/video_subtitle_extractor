@@ -46,6 +46,7 @@ def test_gui_constructs_smoke(app):
         assert hasattr(w, "_batch_start_btn")          # 开始批量处理按钮
         assert not w._batch_start_btn.isEnabled()      # 初始禁用，导入文件夹后才启用
         assert hasattr(w, "merge_check")               # 批量“输出为单个文件”选项
+        assert hasattr(w, "dual_check")                # 批量“双引擎并行处理”选项
         assert w._merge_card.isHidden()                # 初始在单视频 tab 隐藏
         w._tab_pivot.setCurrentItem("batch")
         app.processEvents()

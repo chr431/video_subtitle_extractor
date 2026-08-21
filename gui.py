@@ -459,6 +459,7 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
             decode_backend=("auto", "cpu", "nvdec")[self.backend_combo.currentIndex()],
             ocr_backend=("auto", "cpu", "tensorrt")[self.ocr_backend_combo.currentIndex()],
             combined_output=combined_output,
+            dual_workers=self.dual_check.isChecked(),
         )
         worker.progress.connect(self._on_batch_progress)
         worker.video_done.connect(self._on_batch_video_done)

@@ -114,6 +114,11 @@ def build_settings_panel(parent) -> dict:
     widgets["merge_check"] = merge
     ml.addWidget(merge)
     ml.addWidget(CaptionLabel("列：视频文件名 / 时间(hh:mm:ss) / 字幕；开启后不再生成单个视频 CSV。"))
+    dual = CheckBox("双引擎并行处理（CPU + GPU/TRT 同时跑）")
+    dual.setChecked(True)
+    widgets["dual_check"] = dual
+    ml.addWidget(dual)
+    ml.addWidget(CaptionLabel("仅批量模式生效：两个实例用互补后端消费视频队列，实测约 1.6× 加速。"))
     widgets["_merge_card"] = merge_card
 
     ll = QVBoxLayout(parent)
