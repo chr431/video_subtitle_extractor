@@ -239,7 +239,8 @@ def write_combined_csv(path: Path, rows: list[tuple[str, int, str]]) -> None:
 def _extract_rows(video: Path, roi: tuple, start: int, end: int | None,
                   stride: int, decode_backend: str, ocr_backend: str,
                   postprocess: bool, merge_similar: bool,
-                  progress_cb) -> list[tuple[int, str]]:
+                  progress_cb, dual_pipeline: bool = False,
+                  dual_pipeline_chunks: int = 0) -> list[tuple[int, str]]:
     """跑单个视频：解码+分段+OCR → 后处理后的 rows（不写文件）。"""
     ex = FieldExtractor(
         str(video), roi,
@@ -255,6 +256,8 @@ def _extract_rows(video: Path, roi: tuple, start: int, end: int | None,
         keep_crops=False,
         keep_frames=False,
         merge_similar=merge_similar,
+        dual_pipeline=dual_pipeline,
+        dual_pipeline_chunks=dual_pipeline_chunks,
     )
     result = ex.extract()
     rows = build_rows(result)
@@ -299,6 +302,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="关闭相似段合并（默认开启：噪声把同一条字幕切成多段时只 OCR 一次）")
     p.add_argument("--dual", dest="dual", action="store_true", default=False,
                    help="双引擎并行（仅批量模式；需要 NVDEC 和 TensorRT 均可用，否则自动回退单实例）")
+    p.add_argument("--engine-dual", dest="engine_dual", action="store_true", default=False,
+                   help="单视频内使用引擎级双完整流水线（需要 NVDEC 和 TensorRT 均可用）")
+    p.add_argument("--engine-dual-chunks", dest="engine_dual_chunks", type=int, default=0,
+                   help="引擎级双流水线切片数（默认引擎配置 4）")
     p.add_argument("-o", "--output", default=None,
                    help="输出 CSV 路径（默认 <视频名>_subtitles.csv）")
     return p.parse_args(argv)
@@ -373,7 +380,10 @@ def _run_batch(args, end: int | None) -> int:
                 video, tuple(args.roi), args.start_frame, end,
                 args.sample_stride, dec, ocr,
                 args.postprocess, args.merge_similar,
-                _make_progress(i, video))
+                _make_progress(i, video),
+                dual_pipeline=getattr(args, 'engine_dual', False),
+                dual_pipeline_chunks=getattr(
+                    args, 'engine_dual_chunks', 0))
             if combined_path is not None:
                 with lock:
                     combined_rows.extend(
@@ -463,7 +473,9 @@ def main(argv: list[str] | None = None) -> int:
         video, tuple(args.roi), args.start_frame, end,
         args.sample_stride, args.decode_backend, args.ocr_backend,
         args.postprocess, args.merge_similar,
-        ProgressGate(_progress))
+        ProgressGate(_progress),
+        dual_pipeline=getattr(args, 'engine_dual', False),
+        dual_pipeline_chunks=getattr(args, 'engine_dual_chunks', 0))
     print(f"完成: {video.name} -> {len(rows)} 条文本", file=sys.stderr)
     print(f"输出: {out}")
     write_csv(out, rows)
