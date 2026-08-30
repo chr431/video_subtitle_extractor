@@ -26,9 +26,7 @@ from qfluentwidgets import (
 )
 
 from app_config import app_config
-from extract_worker import (
-    BatchExtractWorker, ExtractWorker, _nvdec_available, _tensorrt_available,
-)
+from extract_worker import BatchExtractWorker, ExtractWorker
 from gui_settings import build_settings_panel
 from gui_video import VideoLoadMixin
 from preview_widget import PreviewWidget
@@ -332,7 +330,7 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
         self._progress_bar.setValue(0)
         self._status_label.setText(f"正在识别…（解码 + 分段 + OCR"
                                    f"{' + 后处理' if app_config.postProcess.value else ''}）")
-        decode_backend = ("auto", "cpu", "nvdec")[self.backend_combo.currentIndex()]
+        decode_backend = ("auto", "cpu", "nvdec", "hybrid")[self.backend_combo.currentIndex()]
         ocr_backend = ("auto", "cpu", "tensorrt")[self.ocr_backend_combo.currentIndex()]
         worker = ExtractWorker(
             self.video_path, (x1, y1, x2, y2),
@@ -444,13 +442,8 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
                 return
             combined_output = Path(out_text)
 
-        dual_workers = self.dual_check.isChecked()
-        if dual_workers and not (
-                _nvdec_available(videos[0]) and _tensorrt_available()):
-            QMessageBox.warning(
-                self, "双引擎不可用",
-                "双引擎并行需要 NVDEC 和 TensorRT 均可用，本次已回退为单实例处理。")
-            dual_workers = False
+        # 双解码并行由引擎内 hybrid 解码（解码后端选“混合”）承担，
+        # 应用级双引擎并行开关已删除，无需探测 NVDEC/TRT。
 
         self._import_video_btn.setEnabled(False)
         self._batch_btn.setEnabled(False)
@@ -466,10 +459,9 @@ class SubtitleExtractorApp(VideoLoadMixin, QMainWindow):
             self.frame_start.value(), self.frame_end.value(),
             self.sample_stride.value(),
             postprocess=bool(app_config.postProcess.value),
-            decode_backend=("auto", "cpu", "nvdec")[self.backend_combo.currentIndex()],
+            decode_backend=("auto", "cpu", "nvdec", "hybrid")[self.backend_combo.currentIndex()],
             ocr_backend=("auto", "cpu", "tensorrt")[self.ocr_backend_combo.currentIndex()],
             combined_output=combined_output,
-            dual_workers=dual_workers,
         )
         worker.progress.connect(self._on_batch_progress)
         worker.video_done.connect(self._on_batch_video_done)

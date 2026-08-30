@@ -1,5 +1,16 @@
 # Release Notes
 
+## v0.2.1（2026-08-25）— 适配引擎 hybrid 解码重构
+
+### 🔧 兼容
+
+- 适配 `video_ocr_engine` 重构：`FieldExtractor` 移除 `dual_pipeline`，
+  新增 `decode_backend="hybrid"`（引擎内 CPU+NVDEC 双解码生产者竞争，
+  `hybrid_decode.HybridDecoder`）。
+- CLI / GUI 解码后端新增“混合 (CPU+NVDEC)”；删除应用级 `--dual`、
+  `--engine-dual` 与 GUI「双引擎并行处理」开关；批量恢复顺序处理，
+  双解码并行交由引擎 hybrid（NVDEC 不可用/条件不满足自动回退）。
+
 ## v0.2.0（2026-08-21）— 字幕提取性能大幅提升
 
 ### ⚡ 性能

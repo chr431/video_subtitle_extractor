@@ -1,3 +1,0 @@
-[submodule "third_party/video_ocr_engine"]
-	path = third_party/video_ocr_engine
-	url = https://github.com/chr431/video_ocr_engine.git

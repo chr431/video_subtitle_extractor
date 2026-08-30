@@ -2,10 +2,13 @@
 
 ## [Unreleased]
 
-### 新增
+### 变更
 
-- 批量页签新增“双引擎并行处理”选项（默认关闭，需要 NVDEC 和 TensorRT 均可用）：主实例 + 互补后端实例（CPU ↔ GPU/TRT）从视频队列取任务。
-- CLI 补齐批量模式：`--batch-dir`、`--combined`、`--output-dir`、`--dual` 等，与 GUI 功能对齐（除视觉预览外）。
+- 适配 `video_ocr_engine` 重构：解码后端新增 **混合 (CPU+NVDEC)** /
+  `--decode-backend hybrid`，由引擎内 `HybridDecoder`（CPU+NVDEC 双解码生产者竞争）
+  承担双解码并行。
+- 删除应用级 `--dual`（批量双实例并行）、`--engine-dual` 与 GUI「双引擎并行处理」
+  开关；批量恢复顺序处理，并行能力交给引擎 hybrid（NVDEC 不可用/条件不满足自动回退）。
 
 ## [0.2.0] - 2026-08-21
 

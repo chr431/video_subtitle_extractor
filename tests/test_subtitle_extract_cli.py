@@ -159,13 +159,16 @@ def test_parse_args_default_postprocess_on():
 
 
 def test_parse_args_backend_defaults_and_override():
-    """默认 decode=auto / ocr=auto；可分别覆盖为 nvdec / tensorrt。"""
+    """默认 decode=auto / ocr=auto；可分别覆盖为 nvdec/tensorrt/hybrid。"""
     a = m.parse_args(["v.mp4", "--roi", "1", "2", "3", "4"])
     assert a.decode_backend == "auto"
     assert a.ocr_backend == "auto"
     b = m.parse_args(["v.mp4", "--roi", "1", "2", "3", "4",
                       "--decode-backend", "nvdec", "--ocr-backend", "tensorrt"])
     assert (b.decode_backend, b.ocr_backend) == ("nvdec", "tensorrt")
+    c = m.parse_args(["v.mp4", "--roi", "1", "2", "3", "4",
+                      "--decode-backend", "hybrid"])
+    assert c.decode_backend == "hybrid"
 
 
 def test_parse_args_merge_similar_default_on_and_override():
@@ -175,20 +178,23 @@ def test_parse_args_merge_similar_default_on_and_override():
     assert b.merge_similar is False
 
 
-def test_parse_args_dual_default_false_and_override():
-    a = m.parse_args(["v.mp4", "--roi", "1", "2", "3", "4"])
-    assert a.dual is False
-    b = m.parse_args(["v.mp4", "--roi", "1", "2", "3", "4", "--dual"])
-    assert b.dual is True
+def test_parse_args_dual_removed():
+    """应用级 --dual 已由引擎内 hybrid 解码取代：参数解析不再接受 --dual。"""
+    import pytest
+    with pytest.raises(SystemExit):
+        m.parse_args(["v.mp4", "--roi", "1", "2", "3", "4", "--dual"])
+    with pytest.raises(SystemExit):
+        m.parse_args(["v.mp4", "--roi", "1", "2", "3", "4", "--engine-dual"])
 
 
 def test_parse_args_batch_mode_options():
     a = m.parse_args(["--batch-dir", "D:/videos", "--roi", "1", "2", "3", "4",
-                      "--combined", "--dual", "--output", "out.csv"])
+                      "--combined", "--decode-backend", "hybrid",
+                      "--output", "out.csv"])
     assert a.batch_dir == "D:/videos"
     assert a.video is None
     assert a.combined is True
-    assert a.dual is True
+    assert a.decode_backend == "hybrid"
     assert a.output == "out.csv"
     b = m.parse_args(["--batch-dir", "D:/videos", "--roi", "1", "2", "3", "4",
                       "--output-dir", "D:/out"])

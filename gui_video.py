@@ -6,11 +6,10 @@ from pathlib import Path
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
-# ── 引擎子模块路径引导（必须在 import 引擎模块之前）──
-from engine_bootstrap import ensure_engine_path  # noqa: E402
-ensure_engine_path()
-
-from video_utils import VideoMetadata, format_duration, open_decord_vr  # noqa: E402
+# 引擎（video_ocr_engine）已 pip 化，直接从已安装包 import。
+# 注意用 video_utils_app（应用侧）：引擎 0.9.0 起已不含 VideoMetadata 等
+# 应用辅助，且模块名也不能与引擎的 video_utils 撞名。
+from video_utils_app import VideoMetadata, format_duration, open_decord_vr  # noqa: E402
 from widget_utils import set_value_silent  # noqa: E402
 
 

@@ -16,15 +16,11 @@ from __future__ import annotations
 import argparse
 import csv
 import io
-import os
-import queue
 import sys
 import threading
 from pathlib import Path
 
-# ── 引擎子模块路径引导（必须在 import video_ocr_engine 之前）──
-from engine_bootstrap import ensure_engine_path  # noqa: E402
-ensure_engine_path()
+# 引擎（video_ocr_engine）已 pip 化，直接从已安装包 import。
 
 from video_ocr_engine import ExtractionResult, FieldExtractor  # noqa: E402
 
@@ -44,51 +40,6 @@ def discover_videos(folder: Path) -> list[Path]:
     return sorted(
         p for p in folder.iterdir()
         if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS)
-
-
-def _nvdec_available(video) -> bool:
-    """轻量探测 NVDEC 解码是否可用（尝试用第一个视频打开 GPU reader）。"""
-    if video is None:
-        return False
-    try:
-        from decord import VideoReader, gpu
-        vr = VideoReader(str(video), ctx=gpu(0))
-        del vr
-        return True
-    except Exception:
-        return False
-
-
-def _tensorrt_available() -> bool:
-    """轻量探测 TensorRT 是否可用（存在 nvinfer DLL 且绑定可导入）。"""
-    try:
-        import tensorrt  # noqa: F401 — shim / binding 导入
-        import tensorrt_bindings
-        pkg = Path(tensorrt_bindings.__file__).resolve().parent
-        candidates = list(pkg.glob("nvinfer*.dll"))
-        libs = pkg.parent / "tensorrt_libs"
-        if libs.is_dir():
-            candidates.extend(libs.glob("nvinfer*.dll"))
-        for entry in os.environ.get("PATH", "").split(os.pathsep):
-            if entry:
-                d = Path(entry)
-                if d.is_dir():
-                    candidates.extend(d.glob("nvinfer*.dll"))
-        return bool(candidates)
-    except Exception:
-        return False
-
-
-def _opposite_decode(backend: str) -> str:
-    return "auto" if (backend or "").strip().lower() == "cpu" else "cpu"
-
-
-def _opposite_ocr(backend: str) -> str:
-    return "auto" if (backend or "").strip().lower() == "cpu" else "cpu"
-
-
-def _opposite_backends(decode: str, ocr: str) -> tuple[str, str]:
-    return _opposite_decode(decode), _opposite_ocr(ocr)
 
 
 class ProgressGate:
@@ -239,11 +190,16 @@ def write_combined_csv(path: Path, rows: list[tuple[str, int, str]]) -> None:
 def _extract_rows(video: Path, roi: tuple, start: int, end: int | None,
                   stride: int, decode_backend: str, ocr_backend: str,
                   postprocess: bool, merge_similar: bool,
-                  progress_cb, dual_pipeline: bool = False) -> list[tuple[int, str]]:
+                  progress_cb) -> list[tuple[int, str]]:
     """跑单个视频：解码+分段+OCR → 后处理后的 rows（不写文件）。
 
-    双流水线为引擎内实现（kfe 唯一分片方法）；引擎七轮后 chunks 参数已
-    移出构造，本 CLI 不再提供 --engine-dual-chunks 旋钮。
+    decode_backend 支持 auto / cpu / nvdec / hybrid：hybrid 由引擎内
+    HybridDecoder（CPU+NVDEC 双解码生产者竞争）承担，NVDEC 不可用或
+    条件不满足时引擎自动回退纯 GPU/CPU。
+
+    引擎 HybridDecoder 目前对 gray 单通道的 DLPack 设备指针路径有缺陷
+    （_Batch 无 to_dlpack，校准 with_dev=True 时崩溃），因此 hybrid 候选
+    （stride==1）暂用 RGB 输出；分段/OCR 内部仍转灰度，结果与 gray 一致。
     """
     ex = FieldExtractor(
         str(video), roi,
@@ -253,13 +209,11 @@ def _extract_rows(video: Path, roi: tuple, start: int, end: int | None,
         decode_backend=decode_backend,
         ocr_backend=ocr_backend,
         progress_cb=progress_cb,
-        # 字幕场景不需要代表帧/帧序列预览，关闭以降低长视频内存；
-        # gray 输出减少解码/转换数据量（标清宽 ROI 实测更快）
-        gray_output=True,
+        # 引擎 0.9 起：内部链恒为单通道，gray_output 参数已删除；
+        # hybrid 的 DLPack 规避也不再需要（引擎内部不依赖 DLPack）
         keep_crops=False,
         keep_frames=False,
         merge_similar=merge_similar,
-        dual_pipeline=dual_pipeline,
     )
     result = ex.extract()
     rows = build_rows(result)
@@ -292,9 +246,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="分频采样步长（默认 1=逐帧；>1 时只处理每个第 N 帧，"
                         "适合字幕等慢更新内容降低解码/处理压力；需 decord ≥0.7.12）")
     p.add_argument("--decode-backend", dest="decode_backend", default="auto",
-                   choices=["auto", "cpu", "nvdec"],
+                   choices=["auto", "cpu", "nvdec", "hybrid"],
                    help="视频解码后端（默认 auto=NVDEC 优先，不可用回退 CPU；"
-                        "cpu=强制 CPU 软解，nvdec=强制 NVDEC）")
+                        "cpu=强制 CPU 软解，nvdec=强制 NVDEC，"
+                        "hybrid=CPU+NVDEC 混合解码（引擎内 HybridDecoder，"
+                        "NVDEC 不可用/条件不满足时自动回退）")
     p.add_argument("--ocr-backend", dest="ocr_backend", default="auto",
                    choices=["auto", "cpu", "tensorrt"],
                    help="OCR 后端（默认 auto=有 TRT 用 TRT，无则回退 ONNX）")
@@ -302,11 +258,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="关闭后处理（默认开启：剔除重复行与纯数字行）")
     p.add_argument("--no-merge-similar", dest="merge_similar", action="store_false", default=True,
                    help="关闭相似段合并（默认开启：噪声把同一条字幕切成多段时只 OCR 一次）")
-    p.add_argument("--dual", dest="dual", action="store_true", default=False,
-                   help="双引擎并行（仅批量模式；需要 NVDEC 和 TensorRT 均可用，否则自动回退单实例）")
-    p.add_argument("--engine-dual", dest="engine_dual", action="store_true", default=False,
-                   help="单视频内使用引擎级双完整流水线（kfe 分片；"
-                        "需要 NVDEC 和 TensorRT 均可用，否则自动回退单流水线）")
     p.add_argument("-o", "--output", default=None,
                    help="输出 CSV 路径（默认 <视频名>_subtitles.csv）")
     return p.parse_args(argv)
@@ -346,26 +297,9 @@ def _run_batch(args, end: int | None) -> int:
     if args.combined:
         combined_path = Path(args.output) if args.output else folder / "合并字幕.csv"
 
-    dual = False
-    if args.dual:
-        if _nvdec_available(videos[0]) and _tensorrt_available():
-            dual = True
-        else:
-            print("警告: 双引擎并行需要 NVDEC 和 TensorRT 均可用，已回退为单实例顺序处理。",
-                  file=sys.stderr)
-
-    pairs = [(args.decode_backend, args.ocr_backend)]
-    if dual:
-        pairs.append(_opposite_backends(args.decode_backend, args.ocr_backend))
-
-    jq: "queue.Queue[tuple[int, Path]]" = queue.Queue()
-    for i, video in enumerate(videos, 1):
-        jq.put((i, video))
-
     combined_rows: list[tuple[str, int, str]] = []
     failures: list[str] = []
     ok = 0
-    lock = threading.Lock()
 
     def _make_progress(i: int, video: Path):
         def cb(m: str, p: float) -> None:
@@ -373,52 +307,29 @@ def _run_batch(args, end: int | None) -> int:
             _progress(f"[{i}/{total}] {video.name} {m}", overall)
         return ProgressGate(cb)
 
-    def _process(job: tuple, dec: str, ocr: str) -> None:
-        nonlocal ok
-        i, video = job
+    # 应用级双引擎并行（--dual）已删除：双解码并行改由引擎内 hybrid
+    # 解码（decode_backend="hybrid"，CPU+NVDEC 双生产者竞争）承担。
+    for i, video in enumerate(videos, 1):
         try:
             rows = _extract_rows(
                 video, tuple(args.roi), args.start_frame, end,
-                args.sample_stride, dec, ocr,
+                args.sample_stride, args.decode_backend, args.ocr_backend,
                 args.postprocess, args.merge_similar,
-                _make_progress(i, video),
-                dual_pipeline=getattr(args, 'engine_dual', False))
+                _make_progress(i, video))
             if combined_path is not None:
-                with lock:
-                    combined_rows.extend(
-                        (video.name, t, text) for t, text in rows)
+                combined_rows.extend(
+                    (video.name, t, text) for t, text in rows)
             else:
                 if args.output_dir:
                     out = Path(args.output_dir) / f"{video.stem}_subtitles.csv"
                 else:
                     out = video.with_name(f"{video.stem}_subtitles.csv")
                 write_csv(out, rows)
-            with lock:
-                ok += 1
+            ok += 1
             print(f"完成 {i}/{total}: {video.name} -> {len(rows)} 条", file=sys.stderr)
         except Exception as e:  # noqa: BLE001
-            with lock:
-                failures.append(f"{video.name}: {e}")
+            failures.append(f"{video.name}: {e}")
             print(f"失败 {i}/{total}: {video.name}: {e}", file=sys.stderr)
-
-    def _consumer(dec: str, ocr: str) -> None:
-        while True:
-            try:
-                job = jq.get_nowait()
-            except queue.Empty:
-                return
-            try:
-                _process(job, dec, ocr)
-            finally:
-                jq.task_done()
-
-    threads = []
-    for dec, ocr in pairs:
-        t = threading.Thread(target=_consumer, args=(dec, ocr), daemon=True)
-        t.start()
-        threads.append(t)
-    for t in threads:
-        t.join()
 
     if combined_path is not None:
         try:
@@ -461,8 +372,6 @@ def main(argv: list[str] | None = None) -> int:
     if not video.is_file():
         print(f"错误: 找不到视频文件 {video}", file=sys.stderr)
         return 2
-    if args.dual:
-        print("警告: --dual 仅在批量模式有效；单视频模式已忽略。", file=sys.stderr)
     if args.combined or args.output_dir:
         print("错误: --combined / --output-dir 仅批量模式有效", file=sys.stderr)
         return 2
@@ -472,8 +381,7 @@ def main(argv: list[str] | None = None) -> int:
         video, tuple(args.roi), args.start_frame, end,
         args.sample_stride, args.decode_backend, args.ocr_backend,
         args.postprocess, args.merge_similar,
-        ProgressGate(_progress),
-        dual_pipeline=getattr(args, 'engine_dual', False))
+        ProgressGate(_progress))
     print(f"完成: {video.name} -> {len(rows)} 条文本", file=sys.stderr)
     print(f"输出: {out}")
     write_csv(out, rows)

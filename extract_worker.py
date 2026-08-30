@@ -1,16 +1,11 @@
 """导出 worker — 后台线程跑引擎 FieldExtractor + 写 CSV（保持 GUI 响应）。"""
 from __future__ import annotations
 
-import os
-import queue
-import threading
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
-# ── 引擎子模块路径引导（必须在 import 引擎模块之前）──
-from engine_bootstrap import ensure_engine_path  # noqa: E402
-ensure_engine_path()
+# 引擎（video_ocr_engine）已 pip 化，直接从已安装包 import。
 
 from video_ocr_engine import FieldExtractor  # noqa: E402
 from subtitle_extract_cli import (  # noqa: E402
@@ -20,53 +15,6 @@ from subtitle_extract_cli import (  # noqa: E402
 
 class _Cancelled(Exception):
     pass
-
-
-def _opposite_decode(backend: str) -> str:
-    """返回互补解码后端：CPU 软解 ↔ 自动/NVDEC（GPU 优先）。"""
-    return "auto" if (backend or "").strip().lower() == "cpu" else "cpu"
-
-
-def _opposite_ocr(backend: str) -> str:
-    """返回互补 OCR 后端：CPU ONNX ↔ 自动/TensorRT（GPU 优先）。"""
-    return "auto" if (backend or "").strip().lower() == "cpu" else "cpu"
-
-
-def _opposite_backends(decode: str, ocr: str) -> tuple[str, str]:
-    return _opposite_decode(decode), _opposite_ocr(ocr)
-
-
-def _nvdec_available(video) -> bool:
-    """轻量探测 NVDEC 解码是否可用（尝试用第一个视频打开 GPU reader）。"""
-    if video is None:
-        return False
-    try:
-        from decord import VideoReader, gpu
-        vr = VideoReader(str(video), ctx=gpu(0))
-        del vr
-        return True
-    except Exception:
-        return False
-
-
-def _tensorrt_available() -> bool:
-    """轻量探测 TensorRT 是否可用（存在 nvinfer DLL 且绑定可导入）。"""
-    try:
-        import tensorrt  # noqa: F401 — shim / binding 导入
-        import tensorrt_bindings
-        pkg = Path(tensorrt_bindings.__file__).resolve().parent
-        candidates = list(pkg.glob("nvinfer*.dll"))
-        libs = pkg.parent / "tensorrt_libs"
-        if libs.is_dir():
-            candidates.extend(libs.glob("nvinfer*.dll"))
-        for entry in os.environ.get("PATH", "").split(os.pathsep):
-            if entry:
-                d = Path(entry)
-                if d.is_dir():
-                    candidates.extend(d.glob("nvinfer*.dll"))
-        return bool(candidates)
-    except Exception:
-        return False
 
 
 class ExtractWorker(QThread):
@@ -115,9 +63,10 @@ class ExtractWorker(QThread):
                 progress_cb=ProgressGate(
                     lambda m, p: self.progress.emit(m, p)),
                 cancel_check=self._check_cancel,
-                # 字幕场景不需要代表帧/帧序列预览，关闭以降低长视频内存；
-                # gray 输出减少解码/转换数据量（标清宽 ROI 实测更快）
-                gray_output=True,
+                # 引擎 0.9 起：内部链恒为单通道（gray 收益已内置），
+                # gray_output 参数已删除；rep_crop_format 只影响代表帧格式，
+                # 本应用 keep_crops=False 用不到。hybrid+stride==1 的
+                # DLPack 规避也不再需要（引擎 hybrid 内部已不依赖 DLPack）。
                 keep_crops=False,
                 keep_frames=False,
                 merge_similar=True,
@@ -139,12 +88,11 @@ class ExtractWorker(QThread):
 
 
 class BatchExtractWorker(QThread):
-    """批量导出 worker — 双引擎实例并发消费视频队列。
+    """批量导出 worker — 顺序处理视频队列。
 
-    两个消费者分别使用互补后端：
-      - 主实例：用户选择的 decode_backend / ocr_backend
-      - 副实例：自动取相反组合（CPU ↔ GPU/TRT）
-    这样 5 视频队列可同时利用 CPU 与 GPU，缩短总墙钟。
+    应用级双引擎并行（--dual / GUI「双引擎并行」开关）已删除：双解码并行
+    改由引擎内 hybrid 解码承担（decode_backend="hybrid"，单一实例内
+    CPU+NVDEC 双解码生产者竞争；条件不满足时引擎自动回退）。
 
     信号:
         progress(str, float)       — 总体进度消息 + 百分比 0-100
@@ -159,8 +107,7 @@ class BatchExtractWorker(QThread):
     def __init__(self, videos: list, roi: tuple, start: int, end: int,
                  stride: int, postprocess: bool = True,
                  decode_backend: str = "auto", ocr_backend: str = "auto",
-                 output_dir=None, combined_output=None, parent=None,
-                 dual_workers: bool = False) -> None:
+                 output_dir=None, combined_output=None, parent=None) -> None:
         super().__init__(parent)
         self.videos = list(videos)
         self.roi = roi
@@ -172,7 +119,6 @@ class BatchExtractWorker(QThread):
         self.ocr_backend = ocr_backend
         self.output_dir = output_dir
         self.combined_output = Path(combined_output) if combined_output else None
-        self.dual_workers = bool(dual_workers)
         self._cancelled = False
 
     def cancel(self) -> None:
@@ -187,34 +133,24 @@ class BatchExtractWorker(QThread):
             return Path(self.output_dir) / f"{video.stem}_subtitles.csv"
         return video.with_name(f"{video.stem}_subtitles.csv")
 
-    def _dual_backends_usable(self) -> bool:
-        """双引擎并行需要 NVDEC 和 TensorRT 同时可用。"""
-        first = self.videos[0] if self.videos else None
-        return _nvdec_available(first) and _tensorrt_available()
-
     def run(self) -> None:
         total = len(self.videos)
         ok = 0
         failures: list[str] = []
         combined_rows: list[tuple[str, int, str]] = []
-        lock = threading.Lock()
-        jq: "queue.Queue[tuple[int, Path, Path]]" = queue.Queue()
-        for i, video in enumerate(self.videos, 1):
-            out = self.combined_output or self._output_path(video)
-            jq.put((i, video, out))
 
         def _progress_for(i: int, video: Path, m: str, p: float) -> None:
             overall = (i - 1) / total * 100 + p / total if total else p
             self.progress.emit(
                 f"批量处理 {i}/{total}: {video.name} {m}", overall)
 
-        def _process(job: tuple, dec: str, ocr: str) -> None:
-            nonlocal ok
-            i, video, out = job
+        for i, video in enumerate(self.videos, 1):
+            out = self.combined_output or self._output_path(video)
             if self._cancelled:
-                return
+                break
             self.progress.emit(
-                f"批量处理 {i}/{total}: {video.name}（dec={dec}, ocr={ocr}）",
+                f"批量处理 {i}/{total}: {video.name}（dec={self.decode_backend}, "
+                f"ocr={self.ocr_backend}）",
                 (i - 1) / total * 100 if total else 0)
             try:
                 # 引擎进度收敛为单调；并映射到批量总体区间
@@ -228,11 +164,12 @@ class BatchExtractWorker(QThread):
                     frame_start=self.start_frame,
                     frame_end=None if (self.end_frame is None or self.end_frame <= 0) else self.end_frame,
                     sample_stride=self.stride,
-                    decode_backend=dec,
-                    ocr_backend=ocr,
+                    decode_backend=self.decode_backend,
+                    ocr_backend=self.ocr_backend,
                     progress_cb=gate,
                     cancel_check=self._check_cancel,
-                    gray_output=True,
+                    # 引擎 0.9 起 gray_output 已删（内部链恒单通道），
+                    # hybrid 的 DLPack 规避也不再需要
                     keep_crops=False,
                     keep_frames=False,
                     merge_similar=True,
@@ -241,50 +178,20 @@ class BatchExtractWorker(QThread):
                 rows = build_rows(result)
                 if self.postprocess:
                     rows = postprocess_rows(rows)
-                with lock:
-                    if self.combined_output is not None:
-                        combined_rows.extend(
-                            (video.name, t, text) for t, text in rows)
-                    else:
-                        write_csv(out, rows)
-                    ok += 1
+                if self.combined_output is not None:
+                    combined_rows.extend(
+                        (video.name, t, text) for t, text in rows)
+                else:
+                    write_csv(out, rows)
+                ok += 1
                 self.video_done.emit(i, total, len(rows), str(out))
             except _Cancelled:
-                return
+                break
             except Exception as e:  # noqa: BLE001 — 单个失败继续处理下一个
-                with lock:
-                    failures.append(f"{video.name}: {e}")
+                failures.append(f"{video.name}: {e}")
                 self.progress.emit(
                     f"批量处理 {i}/{total}: {video.name} 失败，继续下一个",
                     i / total * 100 if total else 0)
-
-        def _consumer(dec: str, ocr: str) -> None:
-            while not self._cancelled:
-                try:
-                    job = jq.get_nowait()
-                except queue.Empty:
-                    return
-                try:
-                    _process(job, dec, ocr)
-                finally:
-                    jq.task_done()
-
-        dual_enabled = self.dual_workers and self._dual_backends_usable()
-        if self.dual_workers and not dual_enabled:
-            self.progress.emit(
-                "双引擎并行需要 NVDEC 和 TensorRT 均可用，已回退为单实例处理",
-                0.0)
-        pairs = [(self.decode_backend, self.ocr_backend)]
-        if dual_enabled:
-            pairs.append(_opposite_backends(
-                self.decode_backend, self.ocr_backend))
-        threads = []
-        for dec, ocr in pairs:
-            t = threading.Thread(target=_consumer, args=(dec, ocr), daemon=True)
-            t.start()
-            threads.append(t)
-        for t in threads:
-            t.join()
 
         if self.combined_output is not None:
             try:

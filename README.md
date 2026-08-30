@@ -1,15 +1,15 @@
 # video-subtitle-extractor
 
 从视频**固定区域**（字幕条/文本条）提取文本的 **CLI + GUI** 应用，基于通用引擎
-[chr431/video_ocr_engine](https://github.com/chr431/video_ocr_engine)（git submodule
-`third_party/video_ocr_engine`，sys.path bootstrap）。输出两列 CSV：
+[chr431/video_ocr_engine](https://github.com/chr431/video_ocr_engine)（**pip 依赖**，
+版本在 `pyproject.toml` 中按 git tag 锁定）。输出两列 CSV：
 **秒级时间戳 + 原始 OCR 文本**（中文等，原样输出不做处理）。
 
 ## 依赖
 
 - Python 3.11+
-- 引擎子模块：`git submodule update --init --recursive`（即 `third_party/video_ocr_engine`）
-- 引擎依赖：`numpy / onnxruntime / psutil`（`pip install -e third_party/video_ocr_engine` 或手动安装）
+- 引擎：**pip 依赖**，随 `pip install -e ".[dev]"` 自动安装（`setup.ps1` 一键完成；
+  本地存在引擎源码树时自动改 editable，改引擎立刻生效）
 - 解码 fork **chr431/decord**（NVDEC/CPU；`--sample-stride>1` 建议 **≥v0.7.12**
   以获得等差步长快速路径，旧版退化为逐索引 seek，仍正确但更慢）——**解码必需**，
   `scripts/setup.ps1` 会一键安装 v0.7.12 发布包（PyPI 版 decord 不支持本项目特性）
@@ -18,11 +18,10 @@
 ## 安装
 
 ```bash
-git clone --recurse-submodules https://github.com/chr431/video_subtitle_extractor.git
+git clone https://github.com/chr431/video_subtitle_extractor.git
 cd video_subtitle_extractor
 python -m venv .venv && .venv\Scripts\activate     # Windows
-pip install -e ".[dev]"
-pip install -e third_party/video_ocr_engine        # 引擎 + 其依赖
+pip install -e ".[dev]"                            # 引擎作为依赖一并安装
 # decord fork：运行 scripts\setup.ps1 会自动下载 chr431/decord v0.7.12 发布包
 # （缓存到 _decord_build\）并装入 .venv。GUI 精简 Qt（PySide6-Addons 是可废弃的
 # ~400MB，且其 RECORD 误含 Essentials 的 Qt6Core.dll——卸载后需强制重装
@@ -72,9 +71,9 @@ python subtitle_extract_cli.py --batch-dir D:\videos --roi 10 850 1910 940 \
 python subtitle_extract_cli.py --batch-dir D:\videos --roi 10 850 1910 940 \
     --combined -o merged.csv
 
-# 批量 + 双引擎并行（需要 NVDEC 与 TensorRT 均可用，否则自动回退单实例）
+# 批量 + 引擎内混合解码（CPU+NVDEC 双解码并行；NVDEC 不可用/条件不满足自动回退）
 python subtitle_extract_cli.py --batch-dir D:\videos --roi 10 850 1910 940 \
-    --dual --combined -o merged.csv
+    --decode-backend hybrid --combined -o merged.csv
 ```
 
 ### GUI（Pivot 导航：提取 + 设置 两页）
@@ -91,16 +90,15 @@ GUI 框架对齐 RaceVideoToLog：**两个页签（单视频 / 批量）+ 底部
 - **单视频页签**：**导入视频** → 载入元信息与首帧（预览显示）→ 调整参数 →
   **导出字幕 CSV**（弹出保存对话框选择输出位置与文件名，默认 `<视频名>_subtitles.csv`）
 - **批量页签**：点「批量导入…」选择文件夹，只**预览第一个视频**并列出待处理数量，
-  此时可调整 ROI/帧范围/后端；确认后点「开始批量处理」**双引擎并发处理所有视频**
-  （按文件名排序；输出 `<视频名>_subtitles.csv` 到各视频所在目录）。两个消费者分别使用
-  互补后端：主实例用当前选择，副实例自动取相反组合（CPU ↔ GPU/TRT），可同时利用
-  CPU 与 GPU。可在“批量输出”卡中通过“双引擎并行处理”开关控制（默认关闭）；
-  **需要 NVDEC 和 TensorRT 均可用**，否则自动回退单实例并提示。单个失败会继续
+  此时可调整 ROI/帧范围/后端；确认后点「开始批量处理」顺序处理所有视频
+  （按文件名排序；输出 `<视频名>_subtitles.csv` 到各视频所在目录）。解码后端选
+  “混合 (CPU+NVDEC)”时，每个视频由引擎内的 HybridDecoder（CPU+NVDEC 双解码
+  生产者竞争）并行解码；NVDEC 不可用或条件不满足时引擎自动回退并提示。单个失败会继续
   处理并在结束时汇总
 - **批量输出为单个文件**（仅批量页签显示，左下方“批量输出”卡）：开启后在开始批量处理
   时选择合并 CSV 路径，所有视频合并为一份 **三列 `video,time_hms,text`**
   （视频文件名 / hh:mm:ss / 字幕），不再生成单个视频 CSV
-- **共用**：左面板可选择 **解码后端**（自动/CPU/NVDEC）与 **OCR 后端**
+- **共用**：左面板可选择 **解码后端**（自动/CPU/NVDEC/混合）与 **OCR 后端**
   （自动/CPU/TensorRT）；后台线程跑引擎（进度条实时反馈），可随时「取消」；
   **导出后处理**（默认开启）剔除重复行与纯数字行（左侧面板开关）
 - **默认值对齐参考**：解码后端=自动、OCR 后端=自动、ROI 初始 0、帧范围 0-0（=全片）；
@@ -116,8 +114,7 @@ GUI 框架对齐 RaceVideoToLog：**两个页签（单视频 / 批量）+ 底部
 - 运行时由引擎 `gpu_setup` 从 **PATH 扫描本地 CUDA/TensorRT** 定位实际推理 DLL
   （先 add_dll_directory 注册）；**无本机 TensorRT 时 OCR 自动回退 ONNX（CPU）**。
 - 选 OCR 后端 = TensorRT / 自动 即用 TRT（GUI `ocr_backend_combo` 或 CLI
-  `--ocr-backend tensorrt`）。引擎缓存构建在 `third_party/video_ocr_engine/ocr_engines/`
-  （子模块已忽略，不入库）。
+  `--ocr-backend tensorrt`）。引擎缓存构建在引擎包内的 `ocr_engines/`（已忽略，不入库）。
 
 ### FFmpeg/decord 日志
 
@@ -135,11 +132,10 @@ master element”的良性日志（容器不规范，但可跳过继续解码，
 | `--start-frame N` | 0 | 开始帧号 |
 | `--end-frame N` | 到末尾 | 结束帧号（0 视为末尾） |
 | `--sample-stride N` | 1 | 分频采样步长：只处理每个第 N 帧（字幕等慢更新内容） |
-| `--decode-backend` | auto | 解码后端：auto / cpu / nvdec（auto=NVDEC 优先，不可用回退 CPU） |
+| `--decode-backend` | auto | 解码后端：auto / cpu / nvdec / hybrid（auto=NVDEC 优先，不可用回退 CPU；hybrid=引擎内 CPU+NVDEC 双解码并行，NVDEC 不可用/条件不满足自动回退） |
 | `--ocr-backend` | auto | OCR 后端：auto / cpu / tensorrt（无 TRT 自动回退 ONNX） |
 | `--no-postprocess` | 关 | 关闭后处理（默认开启：剔除重复行与纯数字行） |
 | `--no-merge-similar` | 关 | 关闭相似段合并（默认开启：噪声把同一条字幕切成多段时只 OCR 一次） |
-| `--dual` | 关 | 双引擎并行（仅批量模式；需要 NVDEC 和 TensorRT 均可用，否则自动回退单实例） |
 | `--combined` | 关 | 批量模式输出为单个合并 CSV |
 | `--output-dir DIR` | — | 批量模式单个 CSV 的输出目录 |
 | `-o, --output` | `<视频名>_subtitles.csv` | 单视频输出路径；批量 + `--combined` 时是合并 CSV 路径 |
@@ -180,5 +176,5 @@ python -m pytest tests/ -v
 
 **GPL-3.0-or-later**（GUI 依赖 PySide6-Fluent-Widgets 为 GPLv3，故本应用为
 GPLv3）。通用引擎 [chr431/video_ocr_engine](https://github.com/chr431/video_ocr_engine)
-是独立仓库，保持 **Apache-2.0**（作为 submodule 被本应用包含）。
+是独立仓库，保持 **Apache-2.0**（作为 pip 依赖被本应用包含）。
 

@@ -60,15 +60,12 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# ── 1. 引擎子模块 ──
-$engineMarker = Join-Path $root "third_party\video_ocr_engine\video_ocr_engine\__init__.py"
-if (-not (Test-Path $engineMarker)) {
-    Write-Step "拉取引擎子模块（git submodule update --init --recursive）..."
-    git submodule update --init --recursive
-    if ($LASTEXITCODE -ne 0) { Write-Error "引擎子模块拉取失败"; exit 1 }
-} else {
-    Write-Step "引擎子模块已就绪。"
-}
+# ── 1. 引擎（video_ocr_engine）：pip 依赖，不再用 git submodule ──
+# 旧做法：submodule + 写 site-packages 的 .pth（绝对路径硬编码，换机即废）。
+# 新做法：版本由 pyproject.toml 的 git tag 锁定（pip install -e . 时自动装）。
+# 本地存在引擎源码树（与本仓库同级的 video_ocr_engine/）时改 editable 安装，
+# 改引擎代码立刻生效；必须在装完本项目依赖**之后**执行，否则 pip 会用
+# git 版本覆盖掉源码直连。
 
 # ── 2. 虚拟环境 ──
 $venvPy = Join-Path $root ".venv\Scripts\python.exe"
@@ -85,26 +82,28 @@ Write-Step "升级 pip ..."
 & $venvPy -m pip install --upgrade pip -q
 if ($LASTEXITCODE -ne 0) { Write-Error "pip 升级失败"; exit 1 }
 
-# ── 3. 引擎子模块 .pth（参考 RaceVideoToLog setup_venv.bat）──
-# 引擎根是 Python 源码根（顶层 engine_config/segmentation/... + video_ocr_engine 包），
-# 写 site-packages 的 .pth 让任何 venv 进程无需 bootstrap 即可 import。
-$sitePkgs = Join-Path $venvRoot "Lib\site-packages"
-if (-not (Test-Path $sitePkgs)) { New-Item -ItemType Directory -Path $sitePkgs -Force | Out-Null }
-$engineAbs = Join-Path $root "third_party\video_ocr_engine"
-$pth = Join-Path $sitePkgs "video_ocr_engine.pth"
-Set-Content -Path $pth -Value $engineAbs -Encoding Ascii
-Write-Step "写入引擎 .pth -> $pth"
-
-# ── 4. 本项目 editable（默认含 dev）──
+# ── 3. 本项目 editable（默认含 dev；引擎作为依赖按 pyproject 的 tag 安装）──
 $spec = if ($NoDev) { "." } else { ".[dev]" }
-Write-Step "安装本项目 ${spec} 依赖 ..."
+Write-Step "安装本项目 ${spec} 依赖（引擎经 git tag 锁定一并安装）..."
 & $venvPy -m pip install -e $spec
 if ($LASTEXITCODE -ne 0) { Write-Error "本项目安装失败"; exit 1 }
 
-# ── 5. 引擎子模块（editable，含 onnxruntime/psutil；与 CI 一致）──
-Write-Step "安装引擎子模块（editable，numpy/onnxruntime/psutil）..."
-& $venvPy -m pip install -e "third_party\video_ocr_engine"
-if ($LASTEXITCODE -ne 0) { Write-Error "引擎子模块安装失败"; exit 1 }
+# ── 4. 本地引擎源码树（editable 覆盖，改引擎立刻生效）──
+$engineSrc = Join-Path (Split-Path $root) "video_ocr_engine"
+if (Test-Path (Join-Path $engineSrc "pyproject.toml")) {
+    Write-Step "发现本地引擎源码树，改用 editable 安装（覆盖 git 版本）..."
+    & $venvPy -m pip install -e $engineSrc --no-deps
+    if ($LASTEXITCODE -ne 0) { Write-Error "引擎 editable 安装失败"; exit 1 }
+} else {
+    Write-Step "无本地引擎源码树，使用 pyproject 锁定的 git tag 版本。"
+}
+
+# ── 5. 清理旧 submodule 时代的残留 .pth（如有）──
+$legacyPth = Join-Path $venvRoot "Lib\site-packages\video_ocr_engine.pth"
+if (Test-Path $legacyPth) {
+    Remove-Item $legacyPth -Force
+    Write-Step "已删除旧 submodule 时代的 $legacyPth（避免与 pip 包冲突）"
+}
 
 # ── 6. decord 解码 fork（参考 RaceVideoToLog：_decord_build 优先，否则下载发布包）──
 if (-not $SkipDecord) {

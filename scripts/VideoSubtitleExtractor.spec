@@ -30,11 +30,9 @@ try:
 except NameError:
     SPEC_DIR = Path.cwd()
 REPO = SPEC_DIR.parent
-ENGINE = REPO / "third_party" / "video_ocr_engine"
-if not (ENGINE / "video_ocr_engine" / "__init__.py").is_file():
-    raise SystemExit(
-        f"引擎子模块缺失: {ENGINE}\n"
-        "请先运行 scripts/setup.ps1 或 `git submodule update --init --recursive`。")
+# 引擎已 pip 化：不再依赖 third_party 子模块源码树，模块与模型资产都从
+# venv 中已安装的 video-ocr-engine 包解析（ocr_native._models_dir 覆盖
+# 源码树 / site-packages / frozen 三种布局）。
 
 datas = []
 binaries = []
@@ -47,8 +45,8 @@ hiddenimports = [
     # 本项目模块（显式列出更稳）
     'gui', 'gui_video', 'gui_settings', 'app_config', 'theme_manager',
     'extract_worker', 'preview_widget', 'widget_utils',
-    'subtitle_extract_cli', 'tensorrt', 'engine_bootstrap',
-    # 引擎顶层模块与包（pathex 提供；引擎源码树亦随包）
+    'subtitle_extract_cli', 'tensorrt',
+    # 引擎顶层模块与包（已随 venv 安装，显式列出防漏收动态 import）
     'engine_config', 'gpu_setup', 'hybrid_decode', 'ocr_native', 'ocr_trt',
     'segmentation', 'video_utils', 'video_ocr_engine',
 ]
@@ -86,13 +84,16 @@ try:
 except Exception:
     pass
 
-# ── 引擎源码树 + OCR 模型完整随包（排除 .git/测试/缓存）──
-# 引擎根随包能让 engine_bootstrap.ensure_engine_path() 在 frozen 下照常工作，
-# OCR 模型（assets/ocr_models）也在树内，_models_dir() 按 __file__ 相对解析即命中。
+# ── OCR 模型随包（video-ocr-engine pip 包的 data-files）──
+# 位置由引擎自己解析（ocr_native._models_dir 覆盖 源码树 / site-packages /
+# frozen 三种布局）；spec 构建期未 frozen，拿到的是已安装引擎的资产目录。
+# 打包到 _internal/ocr_models，frozen 下 _models_dir() 命中 _MEIPASS 同名目录。
+import ocr_native as _ocr_native
+_OCR_MODELS_ROOT = str(_ocr_native._models_dir())
 datas += [(src, dest) for dest, src, _ in Tree(
-    str(ENGINE),
-    prefix="third_party/video_ocr_engine",
-    excludes=[".git", "__pycache__", ".github", ".pytest_cache", "tests", "*.pyc"],
+    _OCR_MODELS_ROOT,
+    prefix="ocr_models",
+    excludes=[".git", "__pycache__", "*.pyc"],
 )]
 
 # ═══════════════════ 精简 ═══════════════════

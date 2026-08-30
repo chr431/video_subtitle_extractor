@@ -80,10 +80,11 @@ def build_settings_panel(parent) -> dict:
     plg.addWidget(StrongBodyLabel("性能"), 0, 0, 1, 4)
     plg.addWidget(CaptionLabel("解码后端"), 1, 0)
     backend_combo = ComboBox()
-    backend_combo.addItems(["自动", "CPU", "NVDEC"])
-    # 默认 auto：优先 NVDEC，不可用回退 CPU（兼容弱 CPU / HEVC / AV1 用户）
+    backend_combo.addItems(["自动", "CPU", "NVDEC", "混合 (CPU+NVDEC)"])
+    # 默认 auto：优先 NVDEC，不可用回退 CPU（兼容弱 CPU / HEVC / AV1 用户）；
+    # hybrid：引擎内 CPU+NVDEC 双解码生产者竞争，NVDEC 不可用/条件不满足自动回退
     backend_combo.setCurrentIndex(0)          # auto
-    backend_combo.setFixedWidth(96)
+    backend_combo.setFixedWidth(160)
     widgets["backend_combo"] = backend_combo
     plg.addWidget(backend_combo, 1, 1)
     plg.addWidget(CaptionLabel("OCR 后端"), 1, 2)
@@ -114,11 +115,6 @@ def build_settings_panel(parent) -> dict:
     widgets["merge_check"] = merge
     ml.addWidget(merge)
     ml.addWidget(CaptionLabel("列：视频文件名 / 时间(hh:mm:ss) / 字幕；开启后不再生成单个视频 CSV。"))
-    dual = CheckBox("双引擎并行处理（CPU + GPU/TRT 同时跑）")
-    dual.setChecked(False)
-    widgets["dual_check"] = dual
-    ml.addWidget(dual)
-    ml.addWidget(CaptionLabel("仅批量模式生效，需要 NVDEC 和 TensorRT 均可用；否则自动回退单实例。"))
     widgets["_merge_card"] = merge_card
 
     ll = QVBoxLayout(parent)

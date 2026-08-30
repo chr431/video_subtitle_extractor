@@ -32,9 +32,10 @@ def test_gui_constructs_smoke(app):
         assert hasattr(w, "frame_start") and hasattr(w, "frame_end")
         assert hasattr(w, "sample_stride")
         assert hasattr(w, "postprocess_check")        # 左参数面板后处理开关
-        assert hasattr(w, "backend_combo")            # 解码后端（auto/CPU/NVDEC）
+        assert hasattr(w, "backend_combo")            # 解码后端（auto/CPU/NVDEC/混合）
         assert hasattr(w, "ocr_backend_combo")        # OCR 后端（auto/CPU/TensorRT）
-        assert w.backend_combo.count() == 3
+        assert w.backend_combo.count() == 4
+        assert w.backend_combo.itemText(3) == "混合 (CPU+NVDEC)"
         assert w.ocr_backend_combo.count() == 3
         assert w.backend_combo.currentIndex() == 0  # 默认 auto：NVDEC 优先回退 CPU
         assert not hasattr(w, "output_edit")          # 输出改为保存对话框，不再有输出框
@@ -46,8 +47,7 @@ def test_gui_constructs_smoke(app):
         assert hasattr(w, "_batch_start_btn")          # 开始批量处理按钮
         assert not w._batch_start_btn.isEnabled()      # 初始禁用，导入文件夹后才启用
         assert hasattr(w, "merge_check")               # 批量“输出为单个文件”选项
-        assert hasattr(w, "dual_check")                # 批量“双引擎并行处理”选项
-        assert not w.dual_check.isChecked()            # 默认关闭
+        assert not hasattr(w, "dual_check")            # 应用级双引擎开关已删除
         assert w._merge_card.isHidden()                # 初始在单视频 tab 隐藏
         w._tab_pivot.setCurrentItem("batch")
         app.processEvents()
@@ -87,17 +87,13 @@ def test_batch_worker_start_and_cancel_callable():
     assert callable(w.cancel)
     assert len(w.videos) == 2
     assert str(w.combined_output) == "merged.csv"
-    assert w.dual_workers is False
+    assert not hasattr(w, "dual_workers")
 
 
-def test_opposite_backends():
-    from extract_worker import _opposite_backends, _opposite_decode, _opposite_ocr
-    assert _opposite_decode("auto") == "cpu"
-    assert _opposite_decode("cpu") == "auto"
-    assert _opposite_decode("nvdec") == "cpu"
-    assert _opposite_ocr("auto") == "cpu"
-    assert _opposite_ocr("cpu") == "auto"
-    assert _opposite_ocr("tensorrt") == "cpu"
-    assert _opposite_backends("auto", "auto") == ("cpu", "cpu")
-    assert _opposite_backends("cpu", "cpu") == ("auto", "auto")
-    assert _opposite_backends("cpu", "tensorrt") == ("auto", "cpu")
+def test_batch_worker_accepts_hybrid_decode():
+    """批量 worker 可直接接收引擎 hybrid 解码后端（engine HybridDecoder）。"""
+    from pathlib import Path
+    from extract_worker import BatchExtractWorker
+    w = BatchExtractWorker([Path("a.mp4")], (0, 0, 10, 10), 0, 100, 1,
+                           postprocess=True, decode_backend="hybrid")
+    assert w.decode_backend == "hybrid"
