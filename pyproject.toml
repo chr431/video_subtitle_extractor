@@ -19,7 +19,7 @@ dependencies = [
     # RaceVideoToLog 同一改造）。submodule 的问题：detached HEAD 可本地提交
     # 不被告警、.pth 硬编码绝对路径换机即废、版本推进无约束。
     # 本地开发改引擎：`pip install -e <引擎源码树>` 覆盖（setup.ps1 自动做）。
-    "video-ocr-engine @ git+https://github.com/chr431/video_ocr_engine.git@v0.14.0",
+    "video-ocr-engine @ git+https://github.com/chr431/video_ocr_engine.git@v0.14.1",
 ]
 
 [project.optional-dependencies]
