@@ -302,7 +302,7 @@ def _prune_openvino(build_root: str) -> None:
     import shutil
     ov = os.path.join(build_root, 'openvino')
     if not os.path.isdir(ov):
-        print('[prune] 未找到 %s，跳过（布局变化需复核配方）' % ov)
+        print('[prune] NOT FOUND %s, skipping (layout changed?)' % ov)
         return
     before = sum(os.path.getsize(f) for f in glob.glob(ov + '/**/*', recursive=True)
                  if os.path.isfile(f))
@@ -328,7 +328,7 @@ def _prune_openvino(build_root: str) -> None:
                  'openvino_onnx_frontend.dll'):
         if not os.path.isfile(os.path.join(ov, 'libs', must)):
             raise SystemExit('[prune] 误删 CPU 闭包文件: %s' % must)
-    print('[prune] openvino %.0fMB → %.0fMB' % (before / 1e6, after / 1e6))
+    print('[prune] openvino %.0fMB -> %.0fMB' % (before / 1e6, after / 1e6))
 
 
 # spec 由 PyInstaller exec 执行：用 __file__ 推导 dist 路径（spec 在
