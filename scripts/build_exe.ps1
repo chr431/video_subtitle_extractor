@@ -90,9 +90,23 @@ Write-Host "[4/4] 运行 PyInstaller（spec: scripts\VideoSubtitleExtractor.spec
 & $py -m PyInstaller (Join-Path $root "scripts\VideoSubtitleExtractor.spec") --noconfirm --clean
 if ($LASTEXITCODE -ne 0) { Write-Error "PyInstaller 构建失败"; exit 1 }
 
-$exe = Join-Path $root "dist\VideoSubtitleExtractor\VideoSubtitleExtractor.exe"
+# 双入口存在性（spec 末尾也自检一次；此处是对用户的显式交付声明）
+$exeGui = Join-Path $root "dist\VideoSubtitleExtractor\VideoSubtitleExtractor.exe"
+$exeCli = Join-Path $root "dist\VideoSubtitleExtractor\subtitle-extract.exe"
+foreach ($e in @($exeGui, $exeCli)) {
+    if (-not (Test-Path $e)) { Write-Error "缺少产物入口: $e"; exit 1 }
+}
+# CLI 冒烟：--help 必须可用（console=True 才拿得到输出；GUI 子系统会挂住）
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+$helpOut = & $exeCli --help 2>&1 | Out-String
+$helpOk = ($LASTEXITCODE -eq 0 -and $helpOut -match "--roi")
+$ErrorActionPreference = $prevEap
+if (-not $helpOk) { Write-Error "CLI 冒烟失败：subtitle-extract.exe --help 无有效输出"; exit 1 }
+
 Write-Host ""
-Write-Host "✔ 构建完成" -ForegroundColor Green
-Write-Host "  可执行文件: $exe"
+Write-Host "✔ 构建完成（GUI + CLI 双入口，共享 _internal\）" -ForegroundColor Green
+Write-Host "  GUI: $exeGui"
+Write-Host "  CLI: $exeCli"
 Write-Host "  整个 dist\VideoSubtitleExtractor\ 目录（onedir）即可分发，需整体拷贝。"
 Write-Host ""

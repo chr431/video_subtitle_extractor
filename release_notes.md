@@ -1,5 +1,49 @@
 # Release Notes
 
+## v0.2.2（2026-09-19）— 发布包补上 CLI 入口 + 解码器对齐
+
+### 🎯 对你意味着什么
+
+- **发布包现在同时含 GUI 与 CLI 两个可执行文件**（此前只有 GUI）：
+  - `VideoSubtitleExtractor.exe` — GUI（双击即用，无控制台窗口）
+  - `subtitle-extract.exe` — CLI（带控制台，进度/错误可见、可重定向）
+  
+  两者共享同一份 `_internal\`，整体体积几乎不变（只多一个 ~5.6MB 的引导器）。
+  CLI 用法与源码方式完全一致，只把命令换成 exe：
+  `.\subtitle-extract.exe episode.mkv --roi 10 850 1910 940 -o subs.csv`
+- **`--decode-backend hybrid` 现在真正生效**：此前 venv 里装的是 decord 0.7.12，
+  而原生 hybrid 需要 ≥0.7.15——引擎会**静默回退纯 GPU**（实测同一命令 0.7.12 打
+  `[decord/GPU]`，0.8.4 打 `[decord/hybrid]`）。现已对齐 **decord 0.8.4**。
+- 若你只跑 GUI、不用 hybrid，本次升级同样无需任何操作。
+
+### 🔧 技术细节
+
+- **spec 改双入口**：两个 `Analysis`（GUI 收集 Qt/qfluentwidgets，CLI 不收集）
+  + 两个 `EXE`（`console=False` / `console=True`）汇入同一个 `COLLECT`，依赖按
+  (dest, src) 去重 → 只落一份。
+- **修 OCR 模型随包缺陷**：原写法把 `Tree(...)` 的 TOC 当 `(src, dest)` 解包，
+  实际上元组是 `(dest, src, typecode)`，于是 PyInstaller 把模型**目录**当数据文件
+  拷过去——产物里 `ocr_models/ppocrv6_dict.txt` 是个目录，frozen CLI 一开就报
+  `PermissionError: [Errno 13] ... Is a directory`。改为逐文件 `os.walk`
+  （同 RaceVideoToLog）。
+- **版本资源修正**：EXE 属性里的 FileVersion/ProductVersion 原硬编码 `0.1.0`，
+  现从 `pyproject.toml` 读取（单一事实源）。
+- **decord 依赖改为 pyproject 的 wheel URL**（与 RaceVideoToLog 同一做法）：
+  `setup.ps1` 不再手写版本号、下载 zip、手工拷 DLL；只做导入与 hybrid ctx 能力
+  校验（缺 ctx 时显式告警而非静默降级）。
+- **清理**：移除 `_decord_build\` 缓存流程与相关过时提示；spec 打印改 ASCII
+  （CI 控制台 cp1252）；pathex 不再重复塞 site-packages（PyInstaller 7.0 起会报错）。
+
+### 验证
+
+- 本机全量单元测试 **26 passed**（含 GUI offscreen 冒烟）
+- frozen CLI 真机冒烟：`subtitle-extract.exe test.mp4 --roi ... --end-frame 150
+  --decode-backend cpu --ocr-backend cpu` → 退出码 0、CSV `time_hms,text` 表头
+  与 4 条识别结果
+- frozen CLI `--help` 正常输出；frozen GUI 启动后常驻运行（进程存活、无崩溃）
+- decord 0.8.4 下 `--decode-backend hybrid` 实测打 `[decord/hybrid]`
+- CI 新增**发布前冻结 CLI 冒烟门禁**（合成视频 + CPU 后端，失败不产生 tag/release）
+
 ## v0.2.1（2026-09-19）— 引擎 0.14.1 对齐
 
 ### 🎯 对你意味着什么

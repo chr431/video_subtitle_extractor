@@ -7,9 +7,10 @@
     - 引擎子模块 third_party/video_ocr_engine：写 site-packages\video_ocr_engine.pth，
       让任意 venv 进程（CLI/GUI/测试）都能 import 引擎模块（同 RaceVideoToLog）。
     - 安装本项目 editable（默认含 dev）+ 引擎依赖（numpy/openvino/psutil）。
-    - decord 解码 fork（chr431/decord v0.7.12，视频解码必需；PyPI 版不支持）：
-        ① 本地 `_decord_build\`（发布产物，布局同 RaceVideoToLog）优先；
-        ② 否则下载 v0.7.12 发布包解压为 `_decord_build\`，再装入 site-packages\decord。
+    - decord 解码 fork（chr431/decord，视频解码必需；PyPI 官方版不支持本项目
+      用到的 next_roi / ROI-first / 原生 hybrid ctx）：作为依赖由
+      `pip install -e .` 按 pyproject.toml 的 wheel URL 安装，本脚本只做
+      存在性与 hybrid ctx 能力校验（版本单一事实源在 pyproject.toml）。
     - TRT（可选，默认装 thin binding）：只装 cuda-python + tensorrt 纯 Python 绑定层
       （[trt] extra，~1MB），不装 tensorrt 元包；实际推理 DLL 由引擎从 PATH 扫描
       本地 CUDA/TensorRT 加载；无则 OCR 自动回退 ONNX（CPU）。-SkipTrt 可跳过。
@@ -105,66 +106,48 @@ if (Test-Path $legacyPth) {
     Write-Step "已删除旧 submodule 时代的 $legacyPth（避免与 pip 包冲突）"
 }
 
-# ── 6. decord 解码 fork（参考 RaceVideoToLog：_decord_build 优先，否则下载发布包）──
+# ── 6. decord 解码 fork ──
+# 2026-09-19：改为**轮子安装**（版本与 URL 由 pyproject.toml 的 PEP 508 依赖
+# 单一锁定，`pip install -e .` 已装好）。旧做法是从 release zip 解压再手工
+# 拷 DLL，版本号硬编码在本脚本里——结果是 0.7.12 一直没跟上引擎的原生
+# hybrid（需 ≥0.7.15），`--decode-backend hybrid` 静默回退纯 GPU。
+# 本步只做**验证**与（必要时）重装，不再自行拼装包内容。
 if (-not $SkipDecord) {
-    Write-Step "安装 decord 解码 fork（chr431/decord v0.7.12，解码必需）..."
-    $decordVer = "0.7.12"
-    $decordExtract = Join-Path $root "_decord_build"
-
-    if (-not (Test-Path (Join-Path $decordExtract "decord.dll"))) {
-        # 下载发布包并解压为 _decord_build\（后续复用，布局与 RaceVideoToLog 一致）
-        $zip = Join-Path $env:TEMP "decord-$decordVer-win64-gpu.zip"
-        $url = "https://github.com/chr431/decord/releases/download/v${decordVer}/decord-${decordVer}-win64-gpu.zip"
-        if (-not (Test-Path $zip)) {
-            Write-Host "    下载 $url ..."
-            $progressSave = $ProgressPreference
-            $ProgressPreference = "SilentlyContinue"   # 大文件下载提速
-            try {
-                Invoke-WebRequest -Uri $url -OutFile $zip
-            } catch {
-                $ProgressPreference = $progressSave
-                Write-Error "decord 发布包下载失败：$url`n$($_.Exception.Message)"
-                exit 1
-            }
-            $ProgressPreference = $progressSave
-            if (-not (Test-Path $zip)) { Write-Error "decord 发布包下载失败"; exit 1 }
-        }
-        Write-Host "    解压发布包 -> _decord_build\ ..."
-        Remove-Item -Recurse -Force $decordExtract -ErrorAction SilentlyContinue
-        Expand-Archive -Path $zip -DestinationPath $decordExtract
-        # zip 内容根是 _decord_build\...，上移一级使其布局与 RaceVideoToLog 一致
-        $inner = Join-Path $decordExtract "_decord_build"
-        if (Test-Path (Join-Path $inner "decord.dll")) {
-            Get-ChildItem $inner | Move-Item -Destination $decordExtract -Force
-            Remove-Item -Recurse -Force $inner -ErrorAction SilentlyContinue
-        }
-    } else {
-        Write-Step "使用已有 _decord_build\（发布产物）。"
-    }
-
-    # 装入 site-packages\decord（纯 Python 层 + decord.dll + FFmpeg dll + ffprobe）
-    $decordSite = Join-Path $venvRoot "Lib\site-packages\decord"
-    if (Test-Path $decordSite) { Remove-Item -Recurse -Force $decordSite }
-    New-Item -ItemType Directory -Path $decordSite -Force | Out-Null
-    Get-ChildItem (Join-Path $decordExtract "*.dll") -ErrorAction SilentlyContinue |
-        Copy-Item -Destination $decordSite -Force
-    Copy-Item -Force (Join-Path $decordExtract "ffprobe.exe") $decordSite -ErrorAction SilentlyContinue
-    if (Test-Path (Join-Path $decordExtract "python\decord\__init__.py")) {
-        Copy-Item -Recurse -Force (Join-Path $decordExtract "python\decord\*") $decordSite
-    }
-
-    # 自检：decord 通过 ctypes 加载 decord.dll；失败多为杀毒/安全策略拦 DLL
+    Write-Step "校验 decord 解码 fork（版本由 pyproject.toml 锁定）..."
     $prevEap = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    & $venvPy -c "from decord import VideoReader, cpu" 2>&1 | Out-Null
+    $decordInfo = & $venvPy -c "import decord; print(decord.__version__)" 2>&1 | Out-String
     $decordOk = ($LASTEXITCODE -eq 0)
     $ErrorActionPreference = $prevEap
     if (-not $decordOk) {
-        Write-Error "decord fork 安装后导入自检失败（请检查杀毒软件是否拦截了 .venv\Lib\site-packages\decord 下的 DLL）。"
+        Write-Host "    decord 未就绪，按 pyproject 重装 ..."
+        & $venvPy -m pip install --force-reinstall --no-deps "decord"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "decord 安装失败（请检查网络/杀毒软件；DLL 被拦会导致导入失败）。"
+            exit 1
+        }
+        $ErrorActionPreference = "Continue"
+        $decordInfo = & $venvPy -c "import decord; print(decord.__version__)" 2>&1 | Out-String
+        $decordOk = ($LASTEXITCODE -eq 0)
+        $ErrorActionPreference = $prevEap
+    }
+    if (-not $decordOk) {
+        Write-Error "decord fork 导入自检失败（请检查杀毒软件是否拦截了 .venv\Lib\site-packages\decord 下的 DLL）。"
         exit 1
     }
-    Write-Host "    ✓ decord v$decordVer 就绪（site-packages\decord）。"
+    # 能力自检：原生 hybrid ctx 存在性（引擎 `--decode-backend hybrid` 依赖它；
+    # 缺失时引擎静默回退纯 GPU，用户无从察觉 → 这里显式报警）。
+    $hybridOk = & $venvPy -c "import decord, sys; sys.exit(0 if hasattr(decord, 'hybrid') else 1)" 2>$null
+    $hybridHas = ($LASTEXITCODE -eq 0)
+    if ($hybridHas) {
+        Write-Host "    ✓ decord $($decordInfo.Trim()) 就绪（含原生 hybrid ctx）。"
+    } else {
+        Write-Host "    ⚠ decord $($decordInfo.Trim()) 已装，但缺少原生 hybrid ctx" -ForegroundColor Yellow
+        Write-Host "      （需 ≥0.7.15）：`--decode-backend hybrid` 会静默回退纯 GPU。" -ForegroundColor Yellow
+        Write-Host "      请确认 pyproject.toml 的 decord URL 与已装版本一致后重跑本脚本。" -ForegroundColor Yellow
+    }
 }
+
 
 # ── 7. TRT thin binding（可选，默认装；无本机 TensorRT 不影响，OCR 自动回退 ONNX）──
 if (-not $SkipTrt) {
@@ -205,6 +188,6 @@ Write-Host "  启动 GUI   :  .\scripts\run_gui.ps1"
 Write-Host "  构建 frozen:  .\scripts\build_exe.ps1"
 Write-Host "  跑测试     :  & .\.venv\Scripts\python.exe -m pytest tests/ -v"
 if (-not $SkipDecord) {
-    Write-Host "  解码后端:   decord v$decordVer（site-packages\decord；发布包缓存于 _decord_build\）"
+    Write-Host "  解码后端:   decord $($decordInfo.Trim())（site-packages\decord）"
 }
 Write-Host ""

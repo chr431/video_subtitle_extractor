@@ -10,9 +10,13 @@
 - Python 3.11+
 - 引擎：**pip 依赖**，随 `pip install -e ".[dev]"` 自动安装（`setup.ps1` 一键完成；
   本地存在引擎源码树时自动改 editable，改引擎立刻生效）
-- 解码 fork **chr431/decord**（NVDEC/CPU；`--sample-stride>1` 建议 **≥v0.7.12**
-  以获得等差步长快速路径，旧版退化为逐索引 seek，仍正确但更慢）——**解码必需**，
-  `scripts/setup.ps1` 会一键安装 v0.7.12 发布包（PyPI 版 decord 不支持本项目特性）
+- 解码 fork **chr431/decord**（wheel，**v0.8.4**；NVDEC / CPU / hybrid 混合解码）
+  ——**解码必需**，PyPI 官方版不支持本项目用到的特性（`next_roi` / ROI-first /
+  等差步长快速路径 / 原生 hybrid ctx）。版本由 `pyproject.toml` 的 PEP 508
+  直接 URL 锁定，`pip install -e .` 与 `scripts/setup.ps1` 自动装好。
+  ⚠️ **≥0.8.4**：`--decode-backend hybrid` 依赖 decord 原生 hybrid ctx
+  （0.7.x 没有该 ctx，引擎会**静默回退纯 GPU**——实测 0.7.12 下 CLI 打的是
+  `[decord/GPU]` 而不是 `[decord/hybrid]`）
 - GUI：`PySide6-Essentials` + `PySide6-Fluent-Widgets`（**GPLv3**，见许可证）
 
 ## 安装
@@ -21,11 +25,10 @@
 git clone https://github.com/chr431/video_subtitle_extractor.git
 cd video_subtitle_extractor
 python -m venv .venv && .venv\Scripts\activate     # Windows
-pip install -e ".[dev]"                            # 引擎作为依赖一并安装
-# decord fork：运行 scripts\setup.ps1 会自动下载 chr431/decord v0.7.12 发布包
-# （缓存到 _decord_build\）并装入 .venv。GUI 精简 Qt（PySide6-Addons 是可废弃的
-# ~400MB，且其 RECORD 误含 Essentials 的 Qt6Core.dll——卸载后需强制重装
-# Essentials 恢复，否则 QtCore 加载失败）：
+pip install -e ".[dev]"                            # 引擎 + decord fork 作为依赖一并安装
+# 或一键（同时精简 Qt）：powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
+# GUI 精简 Qt（PySide6-Addons 是可废弃的 ~400MB，且其 RECORD 误含 Essentials 的
+# Qt6Core.dll——卸载后需强制重装 Essentials 恢复，否则 QtCore 加载失败）：
 pip uninstall -y PySide6-Addons
 pip install --force-reinstall --no-deps PySide6-Essentials
 ```
@@ -37,9 +40,28 @@ pip install --force-reinstall --no-deps PySide6-Essentials
 
 | 脚本 | 作用 |
 |------|------|
-| `scripts/setup.ps1` | **一键配置 venv**（参考 RaceVideoToLog）：拉引擎子模块 → 建 `.venv` → 写引擎 `.pth` → 装本项目（含 dev）+ 引擎依赖 → 装 **decord 解码 fork**（`_decord_build\` 优先或下载 v0.7.12，解码必需，`-SkipDecord` 可跳过）→ 精简 Qt（移除 `PySide6-Addons` 并强制重装 `PySide6-Essentials` 修复 RECORD 缺陷；`-KeepAddons` 保留）。可选 `-NoDev` |
+| `scripts/setup.ps1` | **一键配置 venv**（参考 RaceVideoToLog）：建 `.venv` → 装本项目（含 dev）+ 引擎 + **decord 解码 fork**（版本由 `pyproject.toml` 锁定，解码必需，`-SkipDecord` 可跳过）→ 精简 Qt（移除 `PySide6-Addons` 并强制重装 `PySide6-Essentials` 修复 RECORD 缺陷；`-KeepAddons` 保留）。可选 `-NoDev` |
 | `scripts/run_gui.ps1` | **一键启动 GUI**：用 `.venv` 的 python 运行 `gui.py`（未配置时提示先跑 setup） |
-| `scripts/build_exe.ps1` | **一键构建 frozen exe**（参考 RaceVideoToLog）：自动补 .venv → 校验关键依赖（onnxruntime/numpy/PySide6/decord/qfluentwidgets，**不含 CUDA/TensorRT**）→ 装 PyInstaller → 按 `scripts/VideoSubtitleExtractor.spec` 冻结 GUI，产物 `dist\VideoSubtitleExtractor\`（onedir；引擎源码、OCR 模型、decord 解码后端已随包；spec 已排除未用依赖） |
+| `scripts/build_exe.ps1` | **一键构建 frozen 发布包**（参考 RaceVideoToLog）：自动补 .venv → 校验关键依赖（openvino/numpy/PySide6/decord/qfluentwidgets，**不含 CUDA/TensorRT**）→ 装 PyInstaller → 按 `scripts/VideoSubtitleExtractor.spec` 冻结 **GUI + CLI 双入口**，产物 `dist\VideoSubtitleExtractor\`（onedir；两个 exe 共享一份 `_internal\`；OCR 模型、decord 运行时已随包）→ 构建后跑 CLI `--help` 冒烟 |
+
+## 发布包（GitHub Releases）
+
+发布包的 `VideoSubtitleExtractor.<版本>.7z` 解压后是**同一目录下的两个入口**
+（onedir，需整体拷贝）：
+
+| 入口 | 用途 |
+|------|------|
+| `VideoSubtitleExtractor.exe` | **GUI**（无控制台窗口，双击即用） |
+| `subtitle-extract.exe` | **CLI**（带控制台，进度/错误可见、可重定向） |
+
+```powershell
+# CLI：参数与源码方式完全一致，只把命令换成 exe
+.\subtitle-extract.exe episode.mkv --roi 10 850 1910 940 --end-frame 3000 -o subs.csv
+.\subtitle-extract.exe --help
+```
+
+> 早期发布包（v0.2.1 及更早）**只有 GUI exe**，CLI 需源码方式运行；v0.2.2 起
+> 发布包同时提供两个入口。
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\setup.ps1      # 首次

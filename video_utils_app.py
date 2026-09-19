@@ -70,8 +70,8 @@ def open_decord_vr(video_path, force_cpu: bool = False):
             _vr = _VR(str(video_path), ctx=_decord_cpu(0))
         except ModuleNotFoundError:
             raise RuntimeError(
-                "decord 未安装（需要自建 fork，PyPI 版不支持）。"
-                "请运行 scripts/setup.ps1 或从 chr431/decord 获取发布产物到 _decord_build\\")
+                "decord 未安装（需要 chr431/decord fork，PyPI 官方版不支持本项目特性）。"
+                "请运行 scripts/setup.ps1，或 pip install -e . 按 pyproject.toml 安装")
         except Exception as _e:
             raise RuntimeError(f"decord 无法打开视频: {_e}")
 

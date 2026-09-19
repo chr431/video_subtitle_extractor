@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.2.2] - 2026-09-19
+
+### 修复
+
+- **发布包补上 CLI 入口**：冻结产物此前只有 GUI exe（`console=False`、入口写死
+  `gui.py`），CLI 仅存在于源码/pip 安装形态。spec 改双入口（GUI + CLI，
+  共享 `_internal/`），CLI 名为 `subtitle-extract.exe`（与 pip entry point 一致）。
+- **OCR 模型随包缺陷**：spec 把 `Tree()` 的 TOC 元组当 `(src, dest)` 解包
+  （实际为 `(dest, src, typecode)`），模型文件被当目录拷入产物，frozen CLI
+  报 `PermissionError: [Errno 13] ... Is a directory`。改为逐文件 `os.walk`。
+- **`--decode-backend hybrid` 静默降级**：venv 装的 decord 0.7.12 无原生
+  hybrid ctx（需 ≥0.7.15），引擎静默回退纯 GPU。对齐 decord **0.8.4**，
+  并在 `setup.ps1` 增加 hybrid ctx 能力自检（缺失显式告警）。
+- EXE 版本资源从 `pyproject.toml` 读取（原硬编码 `0.1.0`）。
+
+### 变更
+
+- decord 依赖改为 `pyproject.toml` 的 PEP 508 wheel URL（与 RaceVideoToLog
+  同一做法）；`setup.ps1` 不再下载 zip / 手工拷 DLL，只做导入与能力校验。
+- CI 新增发布前**冻结 CLI 冒烟门禁**（合成视频 + CPU 后端；失败不出 tag/release）。
+- spec 打印改 ASCII（CI 控制台 cp1252）；pathex 不再重复塞 site-packages
+  （PyInstaller 7.0 起为错误）。
+
 ## [Unreleased]
 
 ### 变更

@@ -69,10 +69,64 @@ jobs:
         run: |
           powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_exe.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (-not (Test-Path "dist/VideoSubtitleExtractor/VideoSubtitleExtractor.exe")) {
-            Write-Error "dist/VideoSubtitleExtractor/VideoSubtitleExtractor.exe 未生成"
+          foreach ($e in @("dist/VideoSubtitleExtractor/VideoSubtitleExtractor.exe",
+                           "dist/VideoSubtitleExtractor/subtitle-extract.exe")) {
+            if (-not (Test-Path $e)) { Write-Error "缺少产物入口: $e"; exit 1 }
+          }
+
+      - name: Smoke check CLI exe (frozen, CPU backend, no GPU needed)
+        # 构建成功 ≠ 产物可用：本步骤在打 tag/发布**之前**真实运行 frozen CLI，
+        # 把"CLI 没被打进产物 / 打包遗漏导致 import 失败 / 引擎或模型资产没随包"
+        # 这类回归拦在发布前（0.2.1 及更早的产物只有 GUI exe，CLI 完全缺席）。
+        # 失败不产生 tag/release。
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "_smoke" | Out-Null
+          # windows runner 不保证预装 ffmpeg：PATH 缺失时用 imageio-ffmpeg 兜底
+          $ff = (Get-Command ffmpeg -ErrorAction SilentlyContinue).Source
+          if (-not $ff) {
+            python -m pip install -q imageio-ffmpeg
+            $ff = (python -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())").Trim()
+          }
+          & $ff -y -loglevel error -f lavfi `
+            -i "testsrc=duration=2:size=640x360:rate=30" `
+            -c:v libx264 -pix_fmt yuv420p "_smoke\input.mp4"
+          if (-not (Test-Path "_smoke\input.mp4")) {
+            Write-Error "ffmpeg 合成测试视频失败"; exit 1
+          }
+          # console=True：pwsh 的 & 会等待进程并捕获输出/退出码
+          & "dist\VideoSubtitleExtractor\subtitle-extract.exe" `
+            "_smoke\input.mp4" --roi 20 20 300 80 --start-frame 0 --end-frame 40 `
+            --decode-backend cpu --ocr-backend cpu -o "_smoke\out.csv"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "frozen CLI 冒烟运行失败（exit $LASTEXITCODE）"; exit 1
+          }
+          if (-not (Test-Path "_smoke\out.csv")) {
+            Write-Error "frozen CLI 未生成 CSV"; exit 1
+          }
+          $csv = Get-Content "_smoke\out.csv" -Encoding UTF8
+          if (-not ($csv | Where-Object { $_ -match "^time_hms,text" })) {
+            Write-Error "CSV 表头不符（模板未随包？）"; exit 1
+          }
+          $n = ($csv | Where-Object { $_ -notmatch "^time_hms" -and $_.Trim() }).Count
+          Write-Host "smoke OK: CLI CSV $n 行（内容可为空——冒烟只验产物可运行）"
+
+      - name: Smoke check GUI exe (offscreen, launches without crashing)
+        # 上一步只验了 CLI 走到的共享 _internal；GUI 侧另有 Qt/qfluentwidgets
+        # 专属载荷（GUI exe 的 PYZ 与 Qt 插件），剪枝误删或 hook 漏收会让
+        # GUI 启动即崩——单独验一次启动存活。
+        shell: pwsh
+        run: |
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $p = Start-Process -FilePath "dist\VideoSubtitleExtractor\VideoSubtitleExtractor.exe" `
+            -PassThru
+          Start-Sleep -Seconds 12
+          if ($p.HasExited) {
+            Write-Error "frozen GUI 启动即退出（exit $($p.ExitCode)）——Qt 载荷或 hook 缺失"
             exit 1
           }
+          Write-Host "smoke OK: GUI 启动后存活（PID $($p.Id)）"
+          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
 
       - name: Package release archive (7z, max compression)
         shell: pwsh
@@ -88,9 +142,10 @@ jobs:
           $sl = & $sz l -slt "VideoSubtitleExtractor.$ver.7z"
           $paths = $sl | Where-Object { $_ -match "^Path = " } | ForEach-Object { ($_ -replace "^Path = ", "").Trim() }
           $hasRootExe = $paths -contains "VideoSubtitleExtractor.exe"
+          $hasCliExe = $paths -contains "subtitle-extract.exe"
           $hasInternal = [bool]($paths | Where-Object { $_ -like "_internal\*" -or $_ -like "_internal/*" })
-          if (-not $hasRootExe -or -not $hasInternal) {
-            Write-Error "7z 布局不符：需 VideoSubtitleExtractor.exe（根）+ _internal/（与 dist 一致）"
+          if (-not $hasRootExe -or -not $hasCliExe -or -not $hasInternal) {
+            Write-Error "7z 布局不符：需 VideoSubtitleExtractor.exe（GUI）+ subtitle-extract.exe（CLI）位于根 + _internal/（与 dist 一致）"
             exit 1
           }
           Write-Host "archive ready: VideoSubtitleExtractor.$ver.7z"

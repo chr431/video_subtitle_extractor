@@ -16,7 +16,8 @@ dist/
 .idea/
 .DS_Store
 
-# decord fork 发布产物（scripts/setup.ps1 缓存/读取）
+# decord fork 发布产物（0.2.2 起改为 pyproject 的 wheel URL 安装，
+# 不再缓存 zip 到 _decord_build/；此条目保留给旧工作区的残留目录）
 _decord_build/
 
 # 运行时 GUI 设置（QConfig 持久化）
@@ -32,6 +33,9 @@ notes.md
 *.avi
 *_subtitles.csv
 *_ocr.csv
+
+# CI 冒烟临时目录（合成视频 + CSV）
+_smoke/
 
 # decord 帧索引缓存（脚本 CWD 下生成）
 index/
