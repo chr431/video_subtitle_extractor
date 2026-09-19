@@ -6,7 +6,7 @@
 .DESCRIPTION
     - 引擎子模块 third_party/video_ocr_engine：写 site-packages\video_ocr_engine.pth，
       让任意 venv 进程（CLI/GUI/测试）都能 import 引擎模块（同 RaceVideoToLog）。
-    - 安装本项目 editable（默认含 dev）+ 引擎子模块（numpy/onnxruntime/psutil）。
+    - 安装本项目 editable（默认含 dev）+ 引擎依赖（numpy/openvino/psutil）。
     - decord 解码 fork（chr431/decord v0.7.12，视频解码必需；PyPI 版不支持）：
         ① 本地 `_decord_build\`（发布产物，布局同 RaceVideoToLog）优先；
         ② 否则下载 v0.7.12 发布包解压为 `_decord_build\`，再装入 site-packages\decord。
@@ -16,7 +16,7 @@
     - 精简 Qt（PySide6-Addons 是可废弃的 ~400MB；且 Addons 的 RECORD 误含
       Essentials 的 Qt6Core.dll，同 RaceVideoToLog）：卸载 Addons 后
       `--force-reinstall --no-deps PySide6-Essentials` 恢复，再 import 自检。
-    - 只装本项目/引擎真正需要的依赖（onnxruntime/numpy/psutil/PySide6/qfluentwidgets/
+    - 只装本项目/引擎真正需要的依赖（openvino/numpy/psutil/PySide6/qfluentwidgets/
       decord + 可选 TRT thin binding）。
 
     一键运行（右键「使用 PowerShell 运行」，或执行）：

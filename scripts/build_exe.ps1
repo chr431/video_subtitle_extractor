@@ -5,7 +5,9 @@
 
 .DESCRIPTION
     - .venv 缺失时自动先跑 scripts\setup.ps1（同参考实现）；可用 -SystemPython 改用系统 python。
-    - 关键依赖校验：onnxruntime / numpy / PySide6 / decord / qfluentwidgets。
+    - 关键依赖校验：openvino / numpy / PySide6 / decord / qfluentwidgets。
+      （2026-09-19：onnxruntime → openvino——引擎 C-48 起 CPU OCR 唯一
+      后端为 OpenVINO，onnxruntime 已从引擎依赖移除，本应用也不直接用它。）
       不校验 CUDA/TensorRT（本项目 OCR 走 CPU 后端，无需 GPU 加速依赖）。
     - 构建前清理 build\ dist\；产物为 onedir 目录 dist\VideoSubtitleExtractor\
       （引擎子模块源码、OCR 模型、decord 运行时 dll 均已随包；见 spec）。
@@ -44,10 +46,10 @@ if ($SystemPython) {
 }
 
 # ── [2/4] 关键依赖校验（排除不需要的 cuda/tensorrt）──
-Write-Host "[2/4] 校验关键依赖（onnxruntime/numpy/PySide6/decord/qfluentwidgets）..." -ForegroundColor Cyan
+Write-Host "[2/4] 校验关键依赖（openvino/numpy/PySide6/decord/qfluentwidgets）..." -ForegroundColor Cyan
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
-& $py -c "import onnxruntime, numpy, PySide6, decord, qfluentwidgets" 2>&1 | Out-Null
+& $py -c "import openvino, numpy, PySide6, decord, qfluentwidgets" 2>&1 | Out-Null
 $depsOk = ($LASTEXITCODE -eq 0)
 $ErrorActionPreference = $prevEap
 if (-not $depsOk) {
@@ -55,7 +57,7 @@ if (-not $depsOk) {
     & $py -m pip install -e ".[dev]"
     if ($LASTEXITCODE -ne 0) { Write-Error "依赖安装失败"; exit 1 }
     $ErrorActionPreference = "Continue"
-    & $py -c "import onnxruntime, numpy, PySide6, decord, qfluentwidgets" 2>&1 | Out-Null
+    & $py -c "import openvino, numpy, PySide6, decord, qfluentwidgets" 2>&1 | Out-Null
     $depsOk = ($LASTEXITCODE -eq 0)
     $ErrorActionPreference = $prevEap
     if (-not $depsOk) { Write-Error "依赖仍缺失（请先运行 scripts\setup.ps1）"; exit 1 }
