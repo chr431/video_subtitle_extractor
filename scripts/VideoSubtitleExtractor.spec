@@ -130,9 +130,21 @@ _EXCLUDE_DATAS_SUBDIRS = {
 datas = [(s, d) for s, d in datas
          if not any(e in d.replace('/', '\\') for e in _EXCLUDE_DATAS_SUBDIRS)]
 
+# 引擎包搜索路径（2026-09-19 修复：此处原写 pathex=[str(ENGINE)]，但 ENGINE
+# 从未定义——是 spec 重构（submodule → pip 依赖）时漏改的遗留，此前被更早
+# 的构建失败掩盖。pip 安装的引擎在 site-packages，往上一级即搜索根。
+_ENGINE_PKG = Path(_ov_models_dir()).resolve()
+# _models_dir() 可能返回包内 assets 或 site-packages 下的引擎资产目录 →
+# 统一上溯到含 video_ocr_engine/ 的父目录
+_ENGINE_SEARCH_ROOT = str(_ENGINE_PKG)
+for _anc in [_ENGINE_PKG] + list(_ENGINE_PKG.parents):
+    if (_anc / "video_ocr_engine").is_dir():
+        _ENGINE_SEARCH_ROOT = str(_anc)
+        break
+
 a = Analysis(
     [str(REPO / "gui.py")],
-    pathex=[str(ENGINE)],
+    pathex=[_ENGINE_SEARCH_ROOT],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
