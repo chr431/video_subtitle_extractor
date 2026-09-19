@@ -1,15 +1,28 @@
 # Release Notes
 
-## v0.2.1（2026-08-25）— 适配引擎 hybrid 解码重构
+## v0.2.1（2026-09-19）— 引擎 0.14.1 对齐
 
-### 🔧 兼容
+### 🎯 对你意味着什么
 
-- 适配 `video_ocr_engine` 重构：`FieldExtractor` 移除 `dual_pipeline`，
-  新增 `decode_backend="hybrid"`（引擎内 CPU+NVDEC 双解码生产者竞争，
-  `hybrid_decode.HybridDecoder`）。
-- CLI / GUI 解码后端新增“混合 (CPU+NVDEC)”；删除应用级 `--dual`、
-  `--engine-dual` 与 GUI「双引擎并行处理」开关；批量恢复顺序处理，
-  双解码并行交由引擎 hybrid（NVDEC 不可用/条件不满足自动回退）。
+- **引擎升级到 0.14.1**：引擎删除了六个历史遗留的兼容模块（`engine_config` /
+  `ocr_native` / `video_utils` 等），本应用已同步。**你无需任何操作**；
+  若你有自己的脚本 `import engine_config` 之类，请改为
+  `from video_ocr_engine.config import constants`（其余五个同理，
+  映射表见引擎仓 `docs/MIGRATION.md` §1）
+- **解码器与 OCR 引擎无变化**（仍为 decord fork + OpenVINO CPU / TensorRT GPU），
+  本次仅依赖版本对齐
+
+### 🔧 技术细节
+
+- `pyproject.toml`：`video-ocr-engine` pin `v0.14.0` → `v0.14.1`
+- `tensorrt.py` docstring 更新（提及的引擎模块名改包内路径；
+  顺带修正"无则回退 ONNX"为实际的 OpenVINO——引擎 C-48 已换 CPU 引擎）
+- 本应用对旧兼容模块**零代码依赖**（仅 2 处 docstring 提及）
+
+### 验证
+
+本机全量测试 **26 passed**；CLI 端到端实测（hybrid 解码 + 3000 帧 ROI）
+提取字幕成功。
 
 ## v0.2.0（2026-08-21）— 字幕提取性能大幅提升
 
