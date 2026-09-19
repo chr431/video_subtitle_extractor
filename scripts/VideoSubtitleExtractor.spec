@@ -130,17 +130,18 @@ _EXCLUDE_DATAS_SUBDIRS = {
 datas = [(s, d) for s, d in datas
          if not any(e in d.replace('/', '\\') for e in _EXCLUDE_DATAS_SUBDIRS)]
 
-# 引擎包搜索路径（2026-09-19 修复：此处原写 pathex=[str(ENGINE)]，但 ENGINE
-# 从未定义——是 spec 重构（submodule → pip 依赖）时漏改的遗留，此前被更早
-# 的构建失败掩盖。pip 安装的引擎在 site-packages，往上一级即搜索根。
-_ENGINE_PKG = Path(_ov_models_dir()).resolve()
-# _models_dir() 可能返回包内 assets 或 site-packages 下的引擎资产目录 →
-# 统一上溯到含 video_ocr_engine/ 的父目录
-_ENGINE_SEARCH_ROOT = str(_ENGINE_PKG)
-for _anc in [_ENGINE_PKG] + list(_ENGINE_PKG.parents):
-    if (_anc / "video_ocr_engine").is_dir():
-        _ENGINE_SEARCH_ROOT = str(_anc)
-        break
+# 引擎包搜索路径（2026-09-19 修复两处既有缺陷）：
+#  ① 原写 pathex=[str(ENGINE)]，ENGINE **从未定义**（submodule → pip 依赖
+#     重构时漏改，被更早的构建失败掩盖）；
+#  ② 首版修复从 _models_dir() 上溯——但 CI 用 `pip install -e .` 装引擎，
+#     _models_dir() 指向**引擎源码树**的 assets，而 editable 安装的包实际
+#     经 .pth 挂在 site-packages → 上溯得到错误路径，PyInstaller 找不到包
+#     → 产物**完全不含引擎代码**（实测 _internal 无 video_ocr_engine、
+#     PYZ 无 extractor.py，frozen 启动即 ImportError）。
+# 正解：直接取 `video_ocr_engine` 包的 __file__（import 已成功，两种安装
+# 方式都给出真实位置），其父目录即 pathex 搜索根。
+import video_ocr_engine as _voe
+_ENGINE_SEARCH_ROOT = str(Path(_voe.__file__).resolve().parent.parent)
 
 a = Analysis(
     [str(REPO / "gui.py")],
