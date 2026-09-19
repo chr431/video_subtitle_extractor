@@ -2,8 +2,9 @@
 """PyInstaller spec — 一键冻结 GUI（由 scripts/build_exe.ps1 调用）。
 
 参考 RaceVideoToLog.spec：按需精简约依赖，只带本项目/引擎真正需要的部件：
-  - 构建时临时从 PATH 屏蔽 CUDA/TensorRT（本项目 OCR 走 onnxruntime CPU）
-  - onnxruntime：只留 CPU 推理（排除 DirectML / TRT / CUDA provider 与非推理子目录）
+  - 构建时临时从 PATH 屏蔽 CUDA/TensorRT（本项目 OCR 走 OpenVINO CPU）
+  - OpenVINO：收集后按冻结瘦身配方剪枝（NPU/GPU 插件、非 ONNX 前端、
+    C 头文件全删；只留 CPU 推理闭包）
   - 排除 scipy / Pillow / tkinter / paddle / yaml / numpy.random / numpy.fft 等未用依赖
   - 精简未用的 Qt 模块与旧版 FFmpeg DLL、decord 发布产物中不需要的 avdevice/ffprobe
   - 保留：引擎子模块源码树（engine_bootstrap 存在性检查 + OCR 模型随包），
@@ -46,15 +47,25 @@ hiddenimports = [
     'gui', 'gui_video', 'gui_settings', 'app_config', 'theme_manager',
     'extract_worker', 'preview_widget', 'widget_utils',
     'subtitle_extract_cli', 'tensorrt',
-    # 引擎顶层模块与包（已随 venv 安装，显式列出防漏收动态 import）
-    'engine_config', 'gpu_setup', 'hybrid_decode', 'ocr_native', 'ocr_trt',
-    'segmentation', 'video_utils', 'video_ocr_engine',
+    # 引擎模块与包（已随 venv 安装，显式列出防漏收动态 import）
+    # 2026-09-19：引擎 0.14.1 删除六个根模块 shim（engine_config /
+    # gpu_setup / ocr_native / ocr_trt / segmentation / video_utils）→
+    # 本表改用包内路径；旧名会让 PyInstaller 报 ModuleNotFoundError。
+    'video_ocr_engine', 'video_ocr_engine.config.constants',
+    'video_ocr_engine.ocr.native', 'video_ocr_engine.ocr.trt',
+    'video_ocr_engine.domain.segmentation',
+    'video_ocr_engine.domain.video_utils',
+    'video_ocr_engine.gpu.context', 'video_ocr_engine.pipeline.engine',
+    'video_ocr_engine.extractor',
 ]
 
 # ── 基础依赖收集 ──
-# onnxruntime（CPU 推理）
-_ort = collect_all('onnxruntime')
-datas += _ort[0]; binaries += _ort[1]; hiddenimports += _ort[2]
+# openvino（2026-09-19：引擎 C-48 起 CPU OCR 唯一后端 = OpenVINO，
+# onnxruntime 已从引擎依赖移除、本项目也不使用它 → 换掉并省 ~45MB）。
+# 发行 wheel 是全家桶（NPU 编译器 82MB / Intel GPU 插件 34MB / 各家前端），
+# 本项目只用 CPU 设备 → 收集后在构建末剪枝（见文件末尾 _prune_openvino）。
+_ov = collect_all('openvino')
+datas += _ov[0]; binaries += _ov[1]; hiddenimports += _ov[2]
 # qfluentwidgets（Fluent 组件库资源/模块）
 _qfw = collect_all('qfluentwidgets')
 datas += _qfw[0]; binaries += _qfw[1]; hiddenimports += _qfw[2]
@@ -85,11 +96,12 @@ except Exception:
     pass
 
 # ── OCR 模型随包（video-ocr-engine pip 包的 data-files）──
-# 位置由引擎自己解析（ocr_native._models_dir 覆盖 源码树 / site-packages /
+# 位置由引擎自己解析（_models_dir 覆盖 源码树 / site-packages /
 # frozen 三种布局）；spec 构建期未 frozen，拿到的是已安装引擎的资产目录。
 # 打包到 _internal/ocr_models，frozen 下 _models_dir() 命中 _MEIPASS 同名目录。
-import ocr_native as _ocr_native
-_OCR_MODELS_ROOT = str(_ocr_native._models_dir())
+# 2026-09-19：ocr_native → 包内路径（引擎 shim 已删）。
+from video_ocr_engine.ocr.native import _models_dir as _ov_models_dir
+_OCR_MODELS_ROOT = str(_ov_models_dir())
 datas += [(src, dest) for dest, src, _ in Tree(
     _OCR_MODELS_ROOT,
     prefix="ocr_models",
@@ -97,7 +109,8 @@ datas += [(src, dest) for dest, src, _ in Tree(
 )]
 
 # ═══════════════════ 精简 ═══════════════════
-# onnxruntime 未用 provider + 非推理子目录
+# onnxruntime 未用 provider + 非推理子目录（历史遗留：本应用已不用 ORT，
+# 这些排除项对不存在的包无害，保留以防某依赖间接带入）
 _EXCLUDE_FILES = {
     'DirectML.dll', 'onnxruntime_providers_tensorrt.dll',
     'onnxruntime_providers_cuda.dll',
@@ -266,3 +279,49 @@ coll = COLLECT(
     ],
     name="VideoSubtitleExtractor",
 )
+
+# ── OpenVINO 剪枝（CPU-only 部署；2026-09-19）──────────────────────────
+# 发行 wheel 含 NPU 编译器/Intel GPU 插件/多前端/C 头文件，本项目只用 CPU
+# → 按引擎仓冻结瘦身配方删（docs/log/2026-09-14-OpenVINO冻结瘦身.md）。
+# 实证（本机 2026.3.1）：234MB → 74MB（−68%），剩余为 CPU 推理闭包。
+def _prune_openvino(build_root: str) -> None:
+    import glob
+    import os
+    import shutil
+    ov = os.path.join(build_root, 'openvino')
+    if not os.path.isdir(ov):
+        print('[prune] 未找到 %s，跳过（布局变化需复核配方）' % ov)
+        return
+    before = sum(os.path.getsize(f) for f in glob.glob(ov + '/**/*', recursive=True)
+                 if os.path.isfile(f))
+    pats = [
+        'openvino_intel_npu_compiler.dll', 'openvino_intel_npu_compiler_loader.dll',
+        'openvino_intel_npu_plugin.dll', 'openvino_intel_npu_vm_runtime.dll',
+        'openvino_intel_gpu_plugin.dll', 'openvino_auto_plugin.dll',
+        'openvino_auto_batch_plugin.dll', 'openvino_hetero_plugin.dll',
+        'openvino_tensorflow_frontend.dll', 'openvino_tensorflow_lite_frontend.dll',
+        'openvino_pytorch_frontend.dll', 'openvino_paddle_frontend.dll',
+        'openvino_jax_frontend.dll', 'openvino_ir_frontend.dll',
+        '*.lib', 'cache.json', '*_debug*',
+    ]
+    for pat in pats:
+        for f in glob.glob(os.path.join(ov, 'libs', pat)):
+            os.remove(f)
+    for d in ('include', 'tools', 'frontend'):
+        shutil.rmtree(os.path.join(ov, d), ignore_errors=True)
+    after = sum(os.path.getsize(f) for f in glob.glob(ov + '/**/*', recursive=True)
+                if os.path.isfile(f))
+    # 完整性门禁：CPU 闭包必须在
+    for must in ('openvino.dll', 'openvino_intel_cpu_plugin.dll',
+                 'openvino_onnx_frontend.dll'):
+        if not os.path.isfile(os.path.join(ov, 'libs', must)):
+            raise SystemExit('[prune] 误删 CPU 闭包文件: %s' % must)
+    print('[prune] openvino %.0fMB → %.0fMB' % (before / 1e6, after / 1e6))
+
+
+# spec 由 PyInstaller exec 执行：用 __file__ 推导 dist 路径（spec 在
+# scripts/ 下）；构建完成的 dist 目录布局 = <name>/_internal
+import os as _os
+_prune_openvino(_os.path.join(_os.path.dirname(_os.path.dirname(
+    _os.path.abspath(__file__))) if '__file__' in dir() else '.',
+    'dist', 'VideoSubtitleExtractor', '_internal'))
